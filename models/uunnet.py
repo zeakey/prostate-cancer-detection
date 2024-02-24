@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from einops import rearrange
 from vlkit.ops.upsample import Upsample2d
@@ -104,8 +105,8 @@ class nnUNet25D(Abstract3DUNet):
             Block(f_maps, f_maps),
         ])
         self.decode2d = nn.ModuleList([
-            Upsample2d(f_maps, factor=2),
-            Upsample2d(f_maps, factor=2),
+            Upsample2d(2*f_maps, f_maps, factor=2),
+            Upsample2d(2*f_maps, f_maps, factor=2),
         ])
     def forward(self, x):
         
@@ -122,8 +123,8 @@ class nnUNet25D(Abstract3DUNet):
 
         # 2d -> 3d
         x = rearrange(x, '(n d) c h w -> n c d h w', d=d)
-        # encoder part
 
+        # encoder part
         encoders_features = []
         for encoder in self.encoders:
             x = encoder(x)
@@ -143,7 +144,7 @@ class nnUNet25D(Abstract3DUNet):
         # 3d -> 2d
         x = rearrange(x, 'n c d h w -> (n d) c h w')
         for de, f in zip(self.decode2d, feat2d):
-            x = de(x + f)
+            x = de(torch.cat((x, f), dim=1))
         # 2d -> 3d
         x = rearrange(x, '(n d) c h w -> n c d h w', d=d)
 
