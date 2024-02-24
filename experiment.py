@@ -1,7 +1,7 @@
+import torch, torchvision
+from einops import rearrange
 from dataloader import Dataloader_3D
 from models import nnUNet25D
-
-import time
 import argparse
 from datetime import datetime
 import numpy as np
@@ -9,6 +9,7 @@ import os
 import os.path as osp
 import torch
 import torch.nn.functional as F
+import mmcv
 from torch.utils.tensorboard import SummaryWriter
 from vlkit.lrscheduler import CosineScheduler
 from vlkit import set_random_seed
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument('--data_path',default='datasets/recentered_corrected/', type=str,help='absolute path of the whole dataset')
     
     parser.add_argument('--work_dir',default='',type=str,help='dataset using')
+    parser.add_argument('--workers',default=4, type=int)
     
     parser.add_argument('--batch_size',default=4, type=int,help='Overall size of each batch')
     parser.add_argument('--label_set',default=2, type=float, help='0: GS=6, 1: GS>=6, 2: GS>=7, 3: TP(GS=6), 4: TP(GS>=6), 5: TP(GS>=7), 6: FN, 7: FP')
@@ -85,14 +87,10 @@ def validate(network, dataloader, args):
 
     for batch, data in enumerate(dataloader):
         img, mask = data['img'], data['mask']
-        binary_zonal_mask = data['binary_zonal_mask']
 
         img=img.to(device)
         mask=mask.to(device)
-        binary_zonal_mask = binary_zonal_mask.to(device)
 
-        # 0601 Haoxin edited for zonal distance map
-        img = torch.cat((img, binary_zonal_mask), axis=1)
 
         logits, pred = network(img)
         loss += focal_loss(args, logits, mask)
@@ -120,7 +118,7 @@ def train(args):
             train_dataset,
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=4,
+            num_workers=args.workers,
             pin_memory=True,
             sampler=None,
             drop_last=True)
@@ -129,7 +127,7 @@ def train(args):
             val_dataloader,
             batch_size=args.batch_size,
             shuffle=False,
-            num_workers=1,
+            num_workers=args.workers,
             pin_memory=True,
             sampler=None,
             drop_last=True)
@@ -145,16 +143,11 @@ def train(args):
             network.train()
             for batch, data in enumerate(train_loader):
                 img, mask = data['img'], data['mask']
-                binary_zonal_mask = data['binary_zonal_mask']
 
                 img=img.to(device)
                 mask=mask.to(device)
-                binary_zonal_mask = binary_zonal_mask.to(device)
 
                 optimizer.zero_grad()
-
-                # If you want to add a zonal positional encoding or not. Default: No
-                img = torch.cat((img, binary_zonal_mask), axis=1)
 
                 logits, pred = network(img) 
                 loss = focal_loss(args, logits, mask)
@@ -165,10 +158,40 @@ def train(args):
                 optimizer.step()
                 
                 if batch % 10 == 0:
+                    # find a representative image and slice
+                    img_idx = mask.sum(dim=(2,3,4)).argmax().item()
+                    slice_idx = mask[img_idx].sum(dim=(2, 3)).argmax().item()
+                    # extract slice mask
+                    pz_mask = img[img_idx, 3, slice_idx,]
+                    tz_mask = img[img_idx, 4, slice_idx,]
+                    lesion_mask = mask[img_idx, 0, slice_idx]
+                    pred = pred[img_idx, 0, slice_idx]
+                    pz_mask = rearrange(pz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
+                    tz_mask = rearrange(tz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
+                    lesion_mask = rearrange(lesion_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
+                    # image = t2 adc dwi
+                    image = img[img_idx, :3, slice_idx]
+                    image = rearrange(image, 'n h w -> n 1 h w').repeat(1, 3, 1, 1)
+                    red = torch.zeros_like(pz_mask)
+                    green = torch.zeros_like(pz_mask)
+                    blue = torch.zeros_like(pz_mask)
+                    red[:, 0].fill_(1)
+                    green[:, 1].fill_(1)
+                    blue[:, 2].fill_(1)
+                    alpha = 0.2
+                    image[0] = (red * pz_mask + blue * tz_mask) * alpha +image[0] * (1 - alpha)
+                    image[1] = (blue * pred + green * lesion_mask) * alpha +image[1] * (1 - alpha)
+                    image[2] = (blue * pred + green * lesion_mask) * alpha +image[2] * (1 - alpha)
+                    grid = torchvision.utils.make_grid(
+                        image,
+                        normalize=True,
+                    )
+                    mmcv.imwrite(grid.cpu().numpy(), osp.join(args.work_dir, 'images', f"fold{val_idx}-epoch{epoch}-iter{batch}.png"))
                     logger.info(f"Fold [{val_idx}|5] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}]: loss {loss.item():.3f}")
                     global_step =  len(train_loader) * epoch + batch
                     writer.add_scalar(f"fold-{val_idx}-train-loss", loss.item(), global_step=global_step)
                     writer.add_scalar(f"fold-{val_idx}-lr", lr, global_step=global_step)
+                    writer.add_image("training_samples", grid, global_step)
 
             # validation
             with torch.no_grad():
