@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--pfile_path', default='cv_ids_withNeg.p', type=str,help='relative path of each case, with grouping for cross-validation')
     parser.add_argument('--data_path',default='datasets/recentered_corrected/', type=str,help='absolute path of the whole dataset')
 
-    parser.add_argument('--work_dir',default='',type=str,help='dataset using')
+    parser.add_argument('--work_dir', default='work_dirs/example', type=str)
     parser.add_argument('--workers',default=4, type=int)
 
     parser.add_argument('--batch_size',default=4, type=int,help='Overall size of each batch')
@@ -202,6 +202,7 @@ def train(args):
                             pickle.dump(mask[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
 
                 loss /= len(val_loader)
+                logger.info(f"Fold-{val_idx} epoch-{epoch} val loss: {loss.item():.4e}")
                 writer.add_scalar('val-loss', loss.item())
 
 def main():
