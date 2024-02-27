@@ -122,9 +122,6 @@ class Dataloader_3D(torch.utils.data.Dataset):
         # normalize images
         images[:3] /= images[:3].amax(dim=(1,2,3), keepdim=True)
 
-        if np.random.uniform() > 0.9:
-            images[3:4] += mask
-
         results = {'img': images, 'mask': mask, 'path': fd_path}
 
         transforms = Compose([
