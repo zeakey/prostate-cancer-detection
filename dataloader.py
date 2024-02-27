@@ -126,7 +126,7 @@ class Dataloader_3D(torch.utils.data.Dataset):
 
         transforms = Compose([
             RandomFlip(),
-            RandomScale(),
+            # RandomScale(),
             RandomCrop(128, 128),
         ])
 

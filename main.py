@@ -198,8 +198,8 @@ def train(args):
                         os.makedirs(save_dir, exist_ok=True)
                         for i, path in enumerate(data['path']):
                             study_id = path.split(os.sep)[-1]
-                            pickle.dump(pred[i, 0], open(osp.join(save_dir, study_id+"_pred_{:.4f}.p".format(0.00001)), 'wb'))
-                            pickle.dump(mask[i, 0], open(osp.join(save_dir, study_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
+                            pickle.dump(pred[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_pred_{:.4f}.p".format(0.00001)), 'wb'))
+                            pickle.dump(mask[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
 
                 loss /= len(val_loader)
                 writer.add_scalar('val-loss', loss.item())

@@ -109,7 +109,7 @@ class nnUNet25D(Abstract3DUNet):
             Upsample2d(2*f_maps, f_maps, factor=2),
         ])
     def forward(self, x):
-        
+
         d, h, w = x.shape[-3:]
 
         # 3d -> 2d
