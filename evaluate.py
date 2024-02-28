@@ -359,39 +359,14 @@ def main():
     ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
-    #fig.savefig(os.path.join(target_path, 'eval_FROC_Ruiming.pdf'))
-    # fig.savefig('{}_{}_FROC.pdf'.format(tgt_experiment, inference_name))
-    # fig.savefig('{}_{}_FROC.png'.format(tgt_experiment, inference_name))
-    fig.savefig(os.path.join(src_path.strip(), '-froc.pdf'))
-    
-    # #print("---------{}---------".format(target_path))
-    # pickle.dump(avg_FP, open(os.path.join(src_path+'-eval', 'avg_FP.p'),'wb'))
-    # pickle.dump(sen_all, open(os.path.join(src_path+'-eval', 'sen_all.p'),'wb'))
-    # pickle.dump(sen_sel, open(os.path.join(src_path+'-eval', 'sen_sel.p'),'wb'))
-    # pickle.dump(fp_pts, open(os.path.join(src_path+'-eval', 'fp_pts.p'),'wb'))
-    # pickle.dump(tp_pts, open(os.path.join(src_path+'-eval', 'tp_pts.p'),'wb'))
-    # pickle.dump(fp_cnt_cs, open(os.path.join(src_path+'-eval', 'fp_cnt_cs.p'),'wb'))
-    # pickle.dump(tp_cnt_cs, open(os.path.join(src_path+'-eval', 'tp_cnt_cs.p'),'wb'))
-    # pickle.dump(inst_cnt_cs, open(os.path.join(src_path+'-eval', 'inst_cnt_cs.p'),'wb'))
-    # pickle.dump(per_lesion_cnt_cs, open(os.path.join(src_path+'-eval', 'per_lesion_cnt_cs.p'),'wb'))
-    # pickle.dump(lesion_cnt_cs, open(os.path.join(src_path+'-eval', 'lesion_cnt_cs.p'),'wb'))
-    # pickle.dump(b_avg_fp, open(os.path.join(src_path+'-eval', 'b_avg_fp.p'),'wb'))
+    fig.savefig(src_path.strip() + '-froc.pdf')
 
     savemat(
         os.path.join(src_path.strip()+'-eval.mat'),
         dict(
-            # avg_FP=avg_FP,
             sen_all=sen_all,
             l_conf_cs=l_conf_cs,
             u_conf_cs=u_conf_cs,
-            # sen_sel=sen_sel,
-            # fp_pts=fp_pts,
-            # tp_pts=tp_pts,
-            # fp_cnt_cs=fp_cnt_cs,
-            # tp_cnt_cs=tp_cnt_cs,
-            # inst_cnt_cs=inst_cnt_cs,
-            # per_lesion_cnt_cs=per_lesion_cnt_cs,
-            # lesion_cnt_cs=lesion_cnt_cs,
             b_avg_fp=b_avg_fp
         )
     )
