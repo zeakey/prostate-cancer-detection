@@ -10,17 +10,16 @@ from skimage.feature import peak_local_max
 from skimage.morphology import binary_dilation, disk
 import cv2
 import matplotlib.pyplot as plt
+from scipy.io import savemat
 
 
 _5mm_ball = np.array([np.pad(disk(6),[(2,2), (2, 2)], 'constant'), disk(8),
                       np.pad(disk(6),[(2,2), (2, 2)], 'constant')])
 
-def LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred,instance_dict_mask, inference_name):
+def LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred,instance_dict_mask):
 
     margin = 10  # HZ: originally 5
     tmp_split = src_path.split("/")
-    target_path = os.path.join(src_path, f"measure_history_{inference_name}")
-    os.makedirs(target_path, exist_ok=True)
 
     localized_pts = []
     pred_confidence = []
@@ -75,7 +74,7 @@ def LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred,insta
         tz_mask_list.append(tz_mask_data)
         name_list.append(case_name)
         inst_mask_list.append(inst_mask_data)
-    return localized_pts, pred_confidence, gt_mask_list, pz_mask_list, tz_mask_list, inst_mask_list, name_list, target_path
+    return localized_pts, pred_confidence, gt_mask_list, pz_mask_list, tz_mask_list, inst_mask_list, name_list
 
 
 
@@ -214,7 +213,7 @@ def main():
     fd_list = ["work_dirs/3d"]
 
     img_path = "datasets/recentered_corrected"
-    src_path = 'work_dirs/3d/inference/epoch-4'
+    src_path = sys.argv[1]
     src_list = os.listdir(src_path)
     src_list.sort()
     
@@ -333,8 +332,8 @@ def main():
         instance_dict_mask[case_name]=inst_mask_stack
         
 
-    localized_pts, pred_confidence, gt_mask_list, pz_mask_list, tz_mask_list, inst_mask_list, name_list, target_path \
-        = LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred, instance_dict_mask, inference_name)
+    localized_pts, pred_confidence, gt_mask_list, pz_mask_list, tz_mask_list, inst_mask_list, name_list \
+        = LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred, instance_dict_mask)
     
         
 
@@ -354,7 +353,7 @@ def main():
     _set_ax(ax, 
             x_label='False positives per patient',
             y_label='Sensitivity',
-            fig_title=tgt_experiment[:6]+inference_name)
+            fig_title='FROC')
     
     # ax.semilogx(b_avg_fp, sen, label='All')
     ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
@@ -363,20 +362,39 @@ def main():
     #fig.savefig(os.path.join(target_path, 'eval_FROC_Ruiming.pdf'))
     # fig.savefig('{}_{}_FROC.pdf'.format(tgt_experiment, inference_name))
     # fig.savefig('{}_{}_FROC.png'.format(tgt_experiment, inference_name))
-    fig.savefig(os.path.join(tgt_experiment, 'froc.pdf'))
+    fig.savefig(os.path.join(src_path.strip(), '-froc.pdf'))
     
-    #print("---------{}---------".format(target_path))
-    pickle.dump(avg_FP, open(os.path.join(target_path, 'avg_FP.p'),'wb'))
-    pickle.dump(sen_all, open(os.path.join(target_path, 'sen_all.p'),'wb'))
-    pickle.dump(sen_sel, open(os.path.join(target_path, 'sen_sel.p'),'wb'))
-    pickle.dump(fp_pts, open(os.path.join(target_path, 'fp_pts.p'),'wb'))
-    pickle.dump(tp_pts, open(os.path.join(target_path, 'tp_pts.p'),'wb'))
-    pickle.dump(fp_cnt_cs, open(os.path.join(target_path, 'fp_cnt_cs.p'),'wb'))
-    pickle.dump(tp_cnt_cs, open(os.path.join(target_path, 'tp_cnt_cs.p'),'wb'))
-    pickle.dump(inst_cnt_cs, open(os.path.join(target_path, 'inst_cnt_cs.p'),'wb'))
-    pickle.dump(per_lesion_cnt_cs, open(os.path.join(target_path, 'per_lesion_cnt_cs.p'),'wb'))
-    pickle.dump(lesion_cnt_cs, open(os.path.join(target_path, 'lesion_cnt_cs.p'),'wb'))
-    pickle.dump(b_avg_fp, open(os.path.join(target_path, 'b_avg_fp.p'),'wb'))
+    # #print("---------{}---------".format(target_path))
+    # pickle.dump(avg_FP, open(os.path.join(src_path+'-eval', 'avg_FP.p'),'wb'))
+    # pickle.dump(sen_all, open(os.path.join(src_path+'-eval', 'sen_all.p'),'wb'))
+    # pickle.dump(sen_sel, open(os.path.join(src_path+'-eval', 'sen_sel.p'),'wb'))
+    # pickle.dump(fp_pts, open(os.path.join(src_path+'-eval', 'fp_pts.p'),'wb'))
+    # pickle.dump(tp_pts, open(os.path.join(src_path+'-eval', 'tp_pts.p'),'wb'))
+    # pickle.dump(fp_cnt_cs, open(os.path.join(src_path+'-eval', 'fp_cnt_cs.p'),'wb'))
+    # pickle.dump(tp_cnt_cs, open(os.path.join(src_path+'-eval', 'tp_cnt_cs.p'),'wb'))
+    # pickle.dump(inst_cnt_cs, open(os.path.join(src_path+'-eval', 'inst_cnt_cs.p'),'wb'))
+    # pickle.dump(per_lesion_cnt_cs, open(os.path.join(src_path+'-eval', 'per_lesion_cnt_cs.p'),'wb'))
+    # pickle.dump(lesion_cnt_cs, open(os.path.join(src_path+'-eval', 'lesion_cnt_cs.p'),'wb'))
+    # pickle.dump(b_avg_fp, open(os.path.join(src_path+'-eval', 'b_avg_fp.p'),'wb'))
+
+    savemat(
+        os.path.join(src_path.strip()+'-eval.mat'),
+        dict(
+            # avg_FP=avg_FP,
+            sen_all=sen_all,
+            l_conf_cs=l_conf_cs,
+            u_conf_cs=u_conf_cs,
+            # sen_sel=sen_sel,
+            # fp_pts=fp_pts,
+            # tp_pts=tp_pts,
+            # fp_cnt_cs=fp_cnt_cs,
+            # tp_cnt_cs=tp_cnt_cs,
+            # inst_cnt_cs=inst_cnt_cs,
+            # per_lesion_cnt_cs=per_lesion_cnt_cs,
+            # lesion_cnt_cs=lesion_cnt_cs,
+            b_avg_fp=b_avg_fp
+        )
+    )
 
 
 if __name__=='__main__':
