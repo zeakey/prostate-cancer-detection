@@ -359,10 +359,10 @@ def main():
     ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
-    fig.savefig(src_path.strip() + '-froc.pdf')
+    fig.savefig(src_path.strip(os.sep) + '-froc.pdf')
 
     savemat(
-        os.path.join(src_path.strip()+'-eval.mat'),
+        os.path.join(src_path.strip(os.sep)+'-eval.mat'),
         dict(
             sen_all=sen_all,
             l_conf_cs=l_conf_cs,
