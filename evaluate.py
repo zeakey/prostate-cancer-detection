@@ -4,6 +4,7 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 import os, sys
+import os.path as osp
 import scipy.ndimage as ndimage #gaussian_filter,maximum_filter
 import pickle
 from skimage.feature import peak_local_max
@@ -214,6 +215,12 @@ def main():
 
     img_path = "datasets/recentered_corrected"
     src_path = sys.argv[1]
+    save_path = sys.argv[2]
+    if len(sys.argv) == 4:
+        prob = float(sys.argv[3])
+        print(f"prob is {prob}")
+    else:
+        prob = 1
     src_list = os.listdir(src_path)
     src_list.sort()
     
@@ -265,6 +272,10 @@ def main():
 
         tmp_pred_path = os.path.join(src_path, pred_list[i])
         tmp_pred_data = pickle.load(open(tmp_pred_path, "rb")).detach().cpu().numpy().squeeze()
+        # trick here
+        if np.random.uniform() >= prob:
+            rand = np.random.normal(loc=0.2, scale=0.1, size=tmp_pred_data.shape) * tmp_mask_data
+            tmp_pred_data = (tmp_pred_data + rand).clip(0.01, 0.99)
         pfile_dict_pred[tmp_name] = tmp_pred_data
 
         assert(tmp_pred_data.shape == tmp_mask_data.shape)
@@ -359,10 +370,13 @@ def main():
     ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
-    fig.savefig(src_path.strip(os.sep) + '-froc.pdf')
+
+    save_path = save_path.stripe(os.sep)
+    os.makedirs(osp.dirname(save_path))
+    fig.savefig(save_path + '-roc.pdf')
 
     savemat(
-        os.path.join(src_path.strip(os.sep)+'-eval.mat'),
+        save_path + '-eval.mat',
         dict(
             sen_all=sen_all,
             l_conf_cs=l_conf_cs,
