@@ -1,7 +1,10 @@
 import torch.utils.data
 import os, sys
+import os.path as osp
+from glob import glob
 import torch
 from torchvision.transforms import Compose
+from vlkit.transforms import center_crop
 import numpy as np
 import pickle
 
@@ -50,51 +53,40 @@ class RandomCrop:
 
 
 class Dataloader_3D(torch.utils.data.Dataset):
-    def __init__(self, args, split, val_idx):
-        pfile_path = args.pfile_path
+    def __init__(self, args, split, fold, folds=5):
         data_path = args.data_path
-        
+
+        assert fold < folds
+        self.cases = np.array([i for i in glob(f"{data_path}/*") if osp.isdir(i)])
+        fold_size = len(self.cases) // folds
+        self.cases = self.cases[:fold_size * folds]
+        # kind of shuffle, but not random.
+        self.cases = self.cases.reshape(fold_size, -1).transpose().flatten()
+
+        self.is_val_mask = np.zeros_like(self.cases, dtype=bool)
+        self.is_val_mask[fold * fold_size: (fold + 1) * fold_size] = True
+
+        if split == 'train':
+            self.case_list = self.cases[np.logical_not(self.is_val_mask)]
+        else:
+            self.case_list = self.cases[self.is_val_mask]
+
         self.crop_start = 80
         self.crop_end = 240
         self.slices = 20
-        
-        self.cv_sep = pickle.load(open(pfile_path, "rb")) 
-        self.path_list = []
-        self.val_idx = val_idx
-        
+
+        self.fold = fold
+        self.folds = folds
+        self.split = split
+
         self.label_set = args.label_set
 
-        if val_idx not in [0, 1, 2, 3, 4]:
-            assert(False) # This is a 5-fold cv, val_idx should be in 0~4
-
-        if split=="train":
-            self.train = True
-            self.len = len(self.cv_sep[0])*4
-            for i in range(5):
-                if i==val_idx:
-                    continue
-                curr_sep = self.cv_sep[i]
-                for name in curr_sep:
-                    path = os.path.join(data_path, name)
-                    self.path_list.append(path)  
-        elif split=="val":
-            self.train = False
-            self.len = len(self.cv_sep[0])
-            curr_sep = self.cv_sep[val_idx]
-            for name in curr_sep:
-                path = os.path.join(data_path, name)
-                self.path_list.append(path)             
-        else:
-            assert(False) # Invalid split
-        
-        assert(len(self.path_list) == self.len)
-        
 
     def __len__(self):
-        return self.len
+        return len(self.case_list)
 
     def __getitem__(self, item):
-        fd_path = self.path_list[item]
+        fd_path = self.case_list[item]
 
         images_path = os.path.join(fd_path, "full_stack_data.p")
         images = pickle.load(open(images_path, 'rb'))
@@ -104,7 +96,6 @@ class Dataloader_3D(torch.utils.data.Dataset):
 
         images = torch.tensor(images[:, :, self.crop_start:self.crop_end, self.crop_start:self.crop_end], dtype=torch.float)
         mask = torch.tensor(mask[:, :, self.crop_start:self.crop_end, self.crop_start:self.crop_end], dtype=torch.uint8)
-        mask[mask!=0] = 1
 
         # sanity check
         h, w = images.shape[-2:]
@@ -124,13 +115,22 @@ class Dataloader_3D(torch.utils.data.Dataset):
 
         results = {'img': images, 'mask': mask, 'path': fd_path}
 
+        size = 128
         transforms = Compose([
             RandomFlip(),
             # RandomScale(),
-            RandomCrop(128, 128),
+            RandomCrop(size, size),
         ])
 
-        results = transforms(results)
+        if self.split == 'train':
+            results = transforms(results)
+        else:
+            # center crop
+            for k, v in results.items():
+                if isinstance(v, torch.Tensor):
+                    _, _, h, w = v.shape
+                    results[k] = v[:, :, (h - size) // 2 : (h + size) // 2, (w - size) // 2 : (w + size) // 2]
+
         for k, v in results.items():
             if isinstance(v, torch.Tensor):
                 results[k] = v.to(torch.float)

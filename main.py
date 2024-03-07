@@ -24,6 +24,7 @@ def parse_args():
     parser=argparse.ArgumentParser(description='Detection Project')
     parser.add_argument('--comments',default="Nop",type=str,help='Add whatever you want to for future reference')
     parser.add_argument('--epochs',default=30,type=int,help='number of total epochs to run')
+    parser.add_argument('--folds',default=5,type=int)
     parser.add_argument('--comment', default='', type=str)
     # parser.add_argument('--input_size',default=128,type=int,help='input size of the HW dimension of the image')
     parser.add_argument('--lr', default=1e-2, type=float,help='learning rate')
@@ -90,16 +91,16 @@ def train(args):
     num_channels = 5
 
     # We do 5-fold cross-validation
-    for val_idx in [0, 1, 2, 3, 4]:
+    for fold in range(args.folds):
 
         # Select network you want to use.
-        network = nnUNet3D(in_channels=num_channels, out_channels=1)
+        network = nnUNet25D(in_channels=num_channels, out_channels=1)
         network = network.to(device)
 
         # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
         optimizer = torch.optim.SGD(network.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
-        train_dataset=Dataloader_3D(args, split='train', val_idx=val_idx)
+        train_dataset=Dataloader_3D(args, split='train', fold=fold, folds=args.folds)
         train_loader=torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -108,7 +109,7 @@ def train(args):
             pin_memory=True,
             sampler=None,
             drop_last=True)
-        val_dataset=Dataloader_3D(args, split='val', val_idx=val_idx)
+        val_dataset=Dataloader_3D(args, split='val', fold=fold, folds=args.folds)
         val_loader=torch.utils.data.DataLoader(
             val_dataset,
             batch_size=args.batch_size,
@@ -136,21 +137,21 @@ def train(args):
                 optimizer.zero_grad()
 
                 logits, pred = network(img)
-                loss = focal_loss(args, logits, mask)
+                loss = focal_loss(args, logits, mask.to(bool).to(torch.float))
                 loss.backward()
                 lr = lrscheduler.step()
                 for pg in optimizer.param_groups:
                     pg['lr'] = lr
                 optimizer.step()
 
-                if batch % 10 == 0:
+                if batch % 10 == 0 or batch == len(train_loader) - 1:
                     # find a representative image and slice
                     img_idx = mask.sum(dim=(2,3,4)).argmax().item()
                     slice_idx = mask[img_idx].sum(dim=(2, 3)).argmax().item()
                     # extract slice mask
                     pz_mask = img[img_idx, 3, slice_idx,]
                     tz_mask = img[img_idx, 4, slice_idx,]
-                    lesion_mask = mask[img_idx, 0, slice_idx]
+                    lesion_mask = mask[img_idx, 0, slice_idx].to(bool)
                     pred = pred[img_idx, 0, slice_idx]
                     pz_mask = rearrange(pz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     tz_mask = rearrange(tz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
@@ -172,26 +173,28 @@ def train(args):
                         alpha * (blue * pred) + (1 - alpha) * image,
                         rearrange(pred, 'h w -> 1 1 h w').repeat(3, 3, 1, 1)
                     ))
-                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=3)
-                    logger.info(f"Fold [{val_idx}|5] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}]: lr {lr: .3e}, loss {loss.item():.3f}")
-                    global_step = len(train_loader) * epoch + batch
-                    writer.add_scalar(f"fold-{val_idx}-train-loss", loss.item(), global_step=global_step)
-                    writer.add_scalar(f"fold-{val_idx}-lr", lr, global_step=global_step)
-                    writer.add_image(f'{val_idx}-samples', grid, global_step=global_step)
 
+                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=3)
+                    logger.info(f"Fold [{fold}|{args.folds}] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}]: lr {lr: .3e}, loss {loss.item():.3f}")
+                    global_step = len(train_loader) * epoch + batch
+                    writer.add_scalar(f"fold-{fold}-train-loss", loss.item(), global_step=global_step)
+                    writer.add_scalar(f"fold-{fold}-lr", lr, global_step=global_step)
+                    writer.add_image(f'{fold}-samples', grid, global_step=global_step)
                     grid = normalize(rearrange(grid, 'c h w -> h w c').cpu().numpy(), 0, 255).astype(np.uint8)
-                    mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{val_idx}-epoc{epoch}-iter{batch}.png'))
-            torch.save(network.state_dict(), osp.join(args.work_dir, f'best_model_{val_idx}_final.pt'))
+                    mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{fold}-epoc{epoch}-iter{batch}.png'))
+            torch.save(network.state_dict(), osp.join(args.work_dir, f'best_model_{fold}_final.pt'))
             # validation
             with torch.no_grad():
                 network.eval()
                 loss = 0
                 for batch, data in enumerate(val_loader):
                     img, mask = data['img'], data['mask']
-                    img=img.to(device)
-                    mask=mask.to(device)
+                    img = img.to(device)
+
+                    mask = mask.to(device)
+
                     logits, pred = network(img)
-                    loss += focal_loss(args, logits, mask)
+                    loss += focal_loss(args, logits, mask.to(bool).to(torch.float))
 
                     if (epoch+1) % 5 == 0 or (epoch+1) == args.epochs:
                         save_dir = osp.join(args.work_dir, 'inference', f'epoch-{epoch}')
@@ -202,7 +205,7 @@ def train(args):
                             pickle.dump(mask[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
 
                 loss /= len(val_loader)
-                logger.info(f"Fold-{val_idx} epoch-{epoch} val loss: {loss.item():.4e}")
+                logger.info(f"Fold-{fold} epoch-{epoch} val loss: {loss.item():.4e}")
                 writer.add_scalar('val-loss', loss.item())
 
 def main():
