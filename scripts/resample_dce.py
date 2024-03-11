@@ -4,6 +4,7 @@ from glob import glob
 import numpy as np
 import torch
 from scipy.io import savemat
+# pip install git+https://github.com/vlkit/vlkit.git@main
 from vlkit.io import read_dicoms
 
 
