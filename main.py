@@ -22,14 +22,13 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 
 def parse_args():
     parser=argparse.ArgumentParser(description='Detection Project')
-    parser.add_argument('--comments',default="Nop",type=str,help='Add whatever you want to for future reference')
     parser.add_argument('--epochs',default=30,type=int,help='number of total epochs to run')
     parser.add_argument('--folds',default=5,type=int)
     parser.add_argument('--comment', default='', type=str)
     # parser.add_argument('--input_size',default=128,type=int,help='input size of the HW dimension of the image')
     parser.add_argument('--lr', default=1e-2, type=float,help='learning rate')
     parser.add_argument('--pfile_path', default='cv_ids_withNeg.p', type=str,help='relative path of each case, with grouping for cross-validation')
-    parser.add_argument('--data_path',default='datasets/recentered_corrected/', type=str,help='absolute path of the whole dataset')
+    parser.add_argument('--data',default='/media/hdd2/prostate-cancer-with-dce/dataset-with-dce', type=str,help='absolute path of the whole dataset')
 
     parser.add_argument('--work_dir', default='work_dirs/example', type=str)
     parser.add_argument('--workers',default=4, type=int)
@@ -100,7 +99,7 @@ def train(args):
         # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
         optimizer = torch.optim.SGD(network.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
-        train_dataset=Dataloader_3D(args, split='train', fold=fold, folds=args.folds)
+        train_dataset=Dataloader_3D(data_root=args.data, split='train', fold=fold, folds=args.folds)
         train_loader=torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -109,7 +108,7 @@ def train(args):
             pin_memory=True,
             sampler=None,
             drop_last=True)
-        val_dataset=Dataloader_3D(args, split='val', fold=fold, folds=args.folds)
+        val_dataset=Dataloader_3D(data_root=args.data, split='val', fold=fold, folds=args.folds)
         val_loader=torch.utils.data.DataLoader(
             val_dataset,
             batch_size=args.batch_size,
@@ -148,16 +147,17 @@ def train(args):
                     # find a representative image and slice
                     img_idx = mask.sum(dim=(2,3,4)).argmax().item()
                     slice_idx = mask[img_idx].sum(dim=(2, 3)).argmax().item()
+                    case_id = data['case_id'][img_idx]
                     # extract slice mask
-                    pz_mask = img[img_idx, 3, slice_idx,]
-                    tz_mask = img[img_idx, 4, slice_idx,]
+                    pz_mask = img[img_idx, -2, slice_idx,]
+                    tz_mask = img[img_idx, -1, slice_idx,]
                     lesion_mask = mask[img_idx, 0, slice_idx].to(bool)
                     pred = pred[img_idx, 0, slice_idx]
                     pz_mask = rearrange(pz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     tz_mask = rearrange(tz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     lesion_mask = rearrange(lesion_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     # image = t2 adc dwi
-                    image = img[img_idx, :3, slice_idx]
+                    image = img[img_idx, :num_channels-2, slice_idx]
                     image = rearrange(image, 'n h w -> n 1 h w').repeat(1, 3, 1, 1)
                     red = torch.zeros_like(pz_mask)
                     green = torch.zeros_like(pz_mask)
@@ -174,14 +174,14 @@ def train(args):
                         rearrange(pred, 'h w -> 1 1 h w').repeat(3, 3, 1, 1)
                     ))
 
-                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=3)
+                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=num_channels-2)
                     logger.info(f"Fold [{fold}|{args.folds}] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}]: lr {lr: .3e}, loss {loss.item():.3f}")
                     global_step = len(train_loader) * epoch + batch
                     writer.add_scalar(f"fold-{fold}-train-loss", loss.item(), global_step=global_step)
                     writer.add_scalar(f"fold-{fold}-lr", lr, global_step=global_step)
                     writer.add_image(f'{fold}-samples', grid, global_step=global_step)
                     grid = normalize(rearrange(grid, 'c h w -> h w c').cpu().numpy(), 0, 255).astype(np.uint8)
-                    mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{fold}-epoc{epoch}-iter{batch}.png'))
+                    mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{fold}-epoc{epoch}-iter{batch}-{case_id}.png'))
             torch.save(network.state_dict(), osp.join(args.work_dir, f'best_model_{fold}_final.pt'))
             # validation
             with torch.no_grad():
@@ -199,10 +199,9 @@ def train(args):
                     if (epoch+1) % 5 == 0 or (epoch+1) == args.epochs:
                         save_dir = osp.join(args.work_dir, 'inference', f'epoch-{epoch}')
                         os.makedirs(save_dir, exist_ok=True)
-                        for i, path in enumerate(data['path']):
-                            study_id = path.split(os.sep)[-1]
-                            pickle.dump(pred[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_pred_{:.4f}.p".format(0.00001)), 'wb'))
-                            pickle.dump(mask[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, study_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
+                        for i, case_id in enumerate(data['case_id']):
+                            pickle.dump(pred[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, case_id+"_pred_{:.4f}.p".format(0.00001)), 'wb'))
+                            pickle.dump(mask[i, 0].to(torch.device('cpu')), open(osp.join(save_dir, case_id+"_mask_{:.4f}.p".format(0.00001)), 'wb'))
 
                 loss /= len(val_loader)
                 logger.info(f"Fold-{fold} epoch-{epoch} val loss: {loss.item():.4e}")
