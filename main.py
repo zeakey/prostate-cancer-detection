@@ -5,7 +5,7 @@ from models import nnUNet25D, nnUNet3D
 import argparse
 from datetime import datetime
 import numpy as np
-import os
+import os, time
 import pickle
 import os.path as osp
 import torch
@@ -23,12 +23,13 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 def parse_args():
     parser=argparse.ArgumentParser(description='Detection Project')
     parser.add_argument('--epochs',default=30,type=int,help='number of total epochs to run')
+    parser.add_argument('--images',default='t2,adc,highb,ktrans,kep,beta,pz_mask,tz_mask',type=str,help='Input images')
     parser.add_argument('--folds',default=5,type=int)
     parser.add_argument('--comment', default='', type=str)
     # parser.add_argument('--input_size',default=128,type=int,help='input size of the HW dimension of the image')
     parser.add_argument('--lr', default=1e-2, type=float,help='learning rate')
     parser.add_argument('--pfile_path', default='cv_ids_withNeg.p', type=str,help='relative path of each case, with grouping for cross-validation')
-    parser.add_argument('--data',default='/media/hdd2/prostate-cancer-with-dce/dataset-with-dce', type=str,help='absolute path of the whole dataset')
+    parser.add_argument('--data',default='/home/kzhao/prostate-cancer-with-dce/dataset-with-dce', type=str,help='absolute path of the whole dataset')
 
     parser.add_argument('--work_dir', default='work_dirs/example', type=str)
     parser.add_argument('--workers',default=4, type=int)
@@ -43,7 +44,9 @@ def parse_args():
     parser.add_argument('--focal_gamma',default=2.0,type=float,help='The parameter Gamma in the formula of Focalloss')                                                                           
     parser.add_argument('--bce_weight',default=30.0,type=float,help='Foreground weight when calculating BCE or Focalloss')
     parser.add_argument('--pretrained',default="", type=str, help='path for pretrained model')
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.images = args.images.split(',')
+    return args
 
 args = parse_args()
 
@@ -87,13 +90,14 @@ def train(args):
     current_time=now.strftime("%m-%d-%Y_%H:%M:%S")
 
     os.makedirs(args.work_dir, exist_ok=True)
-    num_channels = 5
 
+
+    tic = time.time()
     # We do 5-fold cross-validation
     for fold in range(args.folds):
 
         # Select network you want to use.
-        network = nnUNet25D(in_channels=num_channels, out_channels=1)
+        network = nnUNet25D(in_channels=len(args.images), out_channels=1)
         network = network.to(device)
 
         # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
@@ -128,7 +132,8 @@ def train(args):
         for epoch in range(args.epochs):
             network.train()
             for batch, data in enumerate(train_loader):
-                img, mask = data['img'], data['mask']
+                mask = data['mask']
+                img = torch.cat([data[im] for im in args.images], dim=1)
 
                 img=img.to(device)
                 mask=mask.to(device)
@@ -157,7 +162,7 @@ def train(args):
                     tz_mask = rearrange(tz_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     lesion_mask = rearrange(lesion_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     # image = t2 adc dwi
-                    image = img[img_idx, :num_channels-2, slice_idx]
+                    image = img[img_idx, :-2, slice_idx]
                     image = rearrange(image, 'n h w -> n 1 h w').repeat(1, 3, 1, 1)
                     red = torch.zeros_like(pz_mask)
                     green = torch.zeros_like(pz_mask)
@@ -173,13 +178,19 @@ def train(args):
                         alpha * (blue * pred) + (1 - alpha) * image,
                         rearrange(pred, 'h w -> 1 1 h w').repeat(3, 3, 1, 1)
                     ))
-
-                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=num_channels-2)
-                    logger.info(f"Fold [{fold}|{args.folds}] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}]: lr {lr: .3e}, loss {loss.item():.3f}")
+                    total_iters = args.folds * args.epochs * len(train_loader)
+                    passed_iters = fold * args.epochs * len(train_loader) + epoch * len(train_loader) + batch + 1
+                    eta = (total_iters / passed_iters - 1) * (time.time() - tic)
+                    eta = eta / 3600
+                    logger.info(f"Fold [{fold}|{args.folds}] epoch [{epoch}|{args.epochs}] iter [{batch}|{len(train_loader)}] ({passed_iters}/{total_iters}): lr {lr: .3e}, loss {loss.item():.3f}. ETA={eta:.1f} hours.")
+                    #
+                    grid = torchvision.utils.make_grid(image, normalize=True, nrow=len(args.images)-2)
                     global_step = len(train_loader) * epoch + batch
                     writer.add_scalar(f"fold-{fold}-train-loss", loss.item(), global_step=global_step)
                     writer.add_scalar(f"fold-{fold}-lr", lr, global_step=global_step)
                     writer.add_image(f'{fold}-samples', grid, global_step=global_step)
+                    #
+                    
                     grid = normalize(rearrange(grid, 'c h w -> h w c').cpu().numpy(), 0, 255).astype(np.uint8)
                     mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{fold}-epoc{epoch}-iter{batch}-{case_id}.png'))
             torch.save(network.state_dict(), osp.join(args.work_dir, f'best_model_{fold}_final.pt'))
@@ -188,9 +199,10 @@ def train(args):
                 network.eval()
                 loss = 0
                 for batch, data in enumerate(val_loader):
-                    img, mask = data['img'], data['mask']
-                    img = img.to(device)
+                    mask = data['mask']
+                    img = torch.cat([data[im] for im in args.images], dim=1)
 
+                    img=img.to(device)
                     mask = mask.to(device)
 
                     logits, pred = network(img)
@@ -205,7 +217,7 @@ def train(args):
 
                 loss /= len(val_loader)
                 logger.info(f"Fold-{fold} epoch-{epoch} val loss: {loss.item():.4e}")
-                writer.add_scalar('val-loss', loss.item())
+                writer.add_scalar(f'Fold-{fold}-val-loss', loss.item(), epoch)
 
 def main():
     set_random_seed(1115)    

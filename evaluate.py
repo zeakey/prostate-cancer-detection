@@ -215,12 +215,11 @@ def main():
 
     img_path = "datasets/recentered_corrected"
     src_path = sys.argv[1]
-    save_path = sys.argv[2]
-    if len(sys.argv) == 4:
-        prob = float(sys.argv[3])
-        print(f"prob is {prob}")
+    if len(sys.argv) >= 3:
+        save_path = sys.argv[2]
     else:
-        prob = 1
+        save_path = src_path.strip(os.sep) + '-eval'
+
     src_list = os.listdir(src_path)
     src_list.sort()
     
@@ -272,10 +271,6 @@ def main():
 
         tmp_pred_path = os.path.join(src_path, pred_list[i])
         tmp_pred_data = pickle.load(open(tmp_pred_path, "rb")).detach().cpu().numpy().squeeze()
-        # trick here
-        if np.random.uniform() >= prob:
-            rand = np.random.normal(loc=0.2, scale=0.1, size=tmp_pred_data.shape) * tmp_mask_data
-            tmp_pred_data = (tmp_pred_data + rand).clip(0.01, 0.99)
         pfile_dict_pred[tmp_name] = tmp_pred_data
 
         assert(tmp_pred_data.shape == tmp_mask_data.shape)
@@ -371,8 +366,8 @@ def main():
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
 
-    save_path = save_path.stripe(os.sep)
-    os.makedirs(osp.dirname(save_path))
+    save_path = save_path.strip(os.sep)
+    os.makedirs(osp.dirname(save_path), exist_ok=True)
     fig.savefig(save_path + '-roc.pdf')
 
     savemat(

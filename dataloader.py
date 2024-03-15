@@ -73,7 +73,7 @@ class Dataloader_3D(torch.utils.data.Dataset):
     def __init__(self, data_root, split, fold, folds=5):
 
         assert fold < folds
-        self.cases = np.array([i for i in glob(f"{data_root}/*.mat")])
+        self.cases = np.array([i for i in glob(f"{data_root}/*") if osp.isdir(i)])
         fold_size = len(self.cases) // folds
         self.cases = self.cases[:fold_size * folds]
         # kind of shuffle, but not random.
@@ -98,35 +98,21 @@ class Dataloader_3D(torch.utils.data.Dataset):
 
     def __getitem__(self, item):
         case = self.case_list[item]
-        data = loadmat(case)
-        lesion_mask = torch.tensor(data['lesion_mask']).unsqueeze(dim=0).to(bool).to(torch.float)
-        zonal_mask = torch.tensor(data['zonal_mask']).unsqueeze(dim=0)
-        t2 = torch.tensor(data['t2']).unsqueeze(dim=0)
-        adc = torch.tensor(data['adc']).unsqueeze(dim=0)
-        adc = adc.clamp(800, 2400)
-        highb = torch.tensor(data['highb']).unsqueeze(dim=0)
-        # dce
-        try:
-            ktrans = torch.tensor(data['ktrans']).unsqueeze(dim=0)
-        except:
-            print('??')
-        kep = torch.tensor(data['kep']).unsqueeze(dim=0)
-        beta = torch.tensor(data['beta']).unsqueeze(dim=0)
+        t2_adc_highb = torch.tensor(np.load(osp.join(case, 't2-adc-highb.npy')))
+        dce = torch.tensor(np.load(osp.join(case, 'ktrans-beta-kep.npy')))
+        lesion_mask = torch.tensor(np.load(osp.join(case, 'lesion_mask.npy')))
+        zonal_mask = torch.tensor(np.load(osp.join(case, 'zonal_mask.npy')))
+        # mask dce
+        dce = dce * (zonal_mask != 0)
+        #
+        t2_adc_highb[:, 1,] = t2_adc_highb[:, 1,].clamp(800, 2400)
+        t2_adc_highb /= t2_adc_highb.amax(dim=(1,2,3), keepdim=True)
 
         images = torch.cat((
-            t2, adc, highb,
-            # ktrans, kep, beta,
+            t2_adc_highb,
+            dce,
             zonal_mask==1,
             zonal_mask==2), dim=0)
-
-        # images_path = os.path.join(fd_path, "full_stack_data.p")
-        # images = pickle.load(open(images_path, 'rb'))
-
-        # mask_path = os.path.join(fd_path, "full_stack_mask_label_set_{}.p".format(self.label_set)) 
-        # mask = pickle.load(open(mask_path, 'rb'))
-
-        # images = torch.tensor(images[:, :, self.crop_start:self.crop_end, self.crop_start:self.crop_end], dtype=torch.float)
-        # mask = torch.tensor(mask[:, :, self.crop_start:self.crop_end, self.crop_start:self.crop_end], dtype=torch.uint8)
 
         # sanity check
         h, w = images.shape[-2:]
@@ -136,20 +122,19 @@ class Dataloader_3D(torch.utils.data.Dataset):
         images = images[:, slices // 2 - 10: slices // 2 + 10]
         lesion_mask = lesion_mask[:, slices // 2 - 10: slices // 2 + 10]
         slices = 20
-
-        # tricks
-        # noise = torch.rand(mask.shape) / 10
-        # if mask.max() > 0 and np.random.uniform() >= 0.7:
-        #     noise = noise * (mask == 0) + \
-        #                  noise * (mask == 128) * np.random.uniform(1.1, 2) + \
-        #                  noise * (mask == 255) * np.random.uniform(1.1, 4)
-        #     # noise[mask == 128] += 0.05
-        #     # noise[mask == 255] += 0.01
-        # noise = blurer(noise)
-        # torchvision.utils.save_image(noise.transpose(0, 1), 'noise.png', normalize=True)
-        # images[0] = images[0] + noise
-
-        results = {'img': images, 'mask': lesion_mask, "case_id": osp.splitext(case.split(os.sep)[-1])[0]}
+        t2, adc, highb, ktrans, beta, kep, pz_mask, tz_mask = images.split(1, dim=0)
+        results = dict(
+            t2=t2,
+            adc=adc,
+            highb=highb,
+            ktrans=ktrans,
+            beta=beta,
+            kep=kep,
+            pz_mask=pz_mask,
+            tz_mask=tz_mask,
+            mask=lesion_mask,
+            case_id=osp.splitext(case.split(os.sep)[-1])[0]
+        )
 
         size = 128
         transforms_train = Compose([
@@ -166,7 +151,6 @@ class Dataloader_3D(torch.utils.data.Dataset):
             results = transforms_train(results)
         else:
             results = transforms_test(results)
-        results['img'][:-2] /= results['img'][:-2].amax(dim=(1,2,3), keepdim=True)
 
         for k, v in results.items():
             if isinstance(v, torch.Tensor):
