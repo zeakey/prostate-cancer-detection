@@ -104,9 +104,17 @@ class Dataloader_3D(torch.utils.data.Dataset):
         zonal_mask = torch.tensor(np.load(osp.join(case, 'zonal_mask.npy')))
         # mask dce
         dce = dce * (zonal_mask != 0)
-        #
+        if dce.max() != 0:
+            # normalize DCE
+            dce /= dce.amax(dim=(1,2,3), keepdim=True)
+        # clamp and normalization
         t2_adc_highb[:, 1,] = t2_adc_highb[:, 1,].clamp(800, 2400)
         t2_adc_highb /= t2_adc_highb.amax(dim=(1,2,3), keepdim=True)
+
+        if torch.any(dce.isnan()):
+            raise ValueError("DCE nan")
+        if torch.any(t2_adc_highb.isnan()):
+            raise ValueError("t2_adc_highb DCE")
 
         images = torch.cat((
             t2_adc_highb,

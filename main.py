@@ -151,7 +151,10 @@ def train(args):
                 if batch % 10 == 0 or batch == len(train_loader) - 1:
                     # find a representative image and slice
                     img_idx = mask.sum(dim=(2,3,4)).argmax().item()
-                    slice_idx = mask[img_idx].sum(dim=(2, 3)).argmax().item()
+                    if mask[img_idx].sum() == 0:
+                        slice_idx = mask.size(2) // 2
+                    else:
+                        slice_idx = mask[img_idx].sum(dim=(2, 3)).argmax().item()
                     case_id = data['case_id'][img_idx]
                     # extract slice mask
                     pz_mask = img[img_idx, -2, slice_idx,]
@@ -163,6 +166,7 @@ def train(args):
                     lesion_mask = rearrange(lesion_mask, 'h w ->  1 1 h w').repeat(1, 3, 1, 1)
                     # image = t2 adc dwi
                     image = img[img_idx, :-2, slice_idx]
+                    # image = torch.cat([normalize(i, 0, 1) for i in image.split(dim=0, split_size=1)], dim=0)
                     image = rearrange(image, 'n h w -> n 1 h w').repeat(1, 3, 1, 1)
                     red = torch.zeros_like(pz_mask)
                     green = torch.zeros_like(pz_mask)
