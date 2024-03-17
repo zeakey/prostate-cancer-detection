@@ -22,9 +22,9 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 
 def parse_args():
     parser=argparse.ArgumentParser(description='Detection Project')
-    parser.add_argument('--epochs',default=30,type=int,help='number of total epochs to run')
+    parser.add_argument('--epochs',default=24,type=int,help='number of total epochs to run')
     parser.add_argument('--images',default='t2,adc,highb,ktrans,kep,beta,pz_mask,tz_mask',type=str,help='Input images')
-    parser.add_argument('--folds',default=5,type=int)
+    parser.add_argument('--folds',default=3,type=int)
     parser.add_argument('--comment', default='', type=str)
     # parser.add_argument('--input_size',default=128,type=int,help='input size of the HW dimension of the image')
     parser.add_argument('--lr', default=1e-2, type=float,help='learning rate')
@@ -95,7 +95,7 @@ def train(args):
     for fold in range(args.folds):
 
         # Select network you want to use.
-        network = nnUNet3D(in_channels=len(args.images), out_channels=1)
+        network = nnUNet25D(in_channels=len(args.images), out_channels=1)
         network = network.to(device)
 
         # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
