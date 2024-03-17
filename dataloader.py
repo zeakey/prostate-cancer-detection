@@ -98,51 +98,69 @@ class Dataloader_3D(torch.utils.data.Dataset):
 
     def __getitem__(self, item):
         case = self.case_list[item]
-        t2_adc_highb = torch.tensor(np.load(osp.join(case, 't2-adc-highb.npy')))
-        dce = torch.tensor(np.load(osp.join(case, 'ktrans-beta-kep.npy')))
+        t2_adc_highb = torch.tensor(np.load(osp.join(case, 't2_adc_highb.npy')))
+        try:
+            dce = torch.tensor(np.load(osp.join(case, 'ktrans_beta_kep.npy')))
+        except:
+            dce = None
         lesion_mask = torch.tensor(np.load(osp.join(case, 'lesion_mask.npy')))
         zonal_mask = torch.tensor(np.load(osp.join(case, 'zonal_mask.npy')))
         # mask dce
-        dce = dce * (zonal_mask != 0)
-        if dce.max() != 0:
+        if dce:
+            dce = dce * (zonal_mask != 0)
+        if dce and dce.max() != 0:
             # normalize DCE
             dce /= dce.amax(dim=(1,2,3), keepdim=True)
         # clamp and normalization
         t2_adc_highb[:, 1,] = t2_adc_highb[:, 1,].clamp(800, 2400)
         t2_adc_highb /= t2_adc_highb.amax(dim=(1,2,3), keepdim=True)
 
-        if torch.any(dce.isnan()):
+        if dce and torch.any(dce.isnan()):
             raise ValueError("DCE nan")
         if torch.any(t2_adc_highb.isnan()):
             raise ValueError("t2_adc_highb DCE")
 
-        images = torch.cat((
-            t2_adc_highb,
-            dce,
-            zonal_mask==1,
-            zonal_mask==2), dim=0)
-
         # sanity check
-        h, w = images.shape[-2:]
-        slices = images.shape[1]
+        h, w = t2_adc_highb.shape[-2:]
+        slices = t2_adc_highb.shape[1]
+        if not t2_adc_highb.shape[-3] == lesion_mask.shape[-3] == zonal_mask.shape[-3]:
+            raise ValueError('??')
         assert lesion_mask.shape[-2:] == (h, w)
         assert slices >= 20
-        images = images[:, slices // 2 - 10: slices // 2 + 10]
+        t2_adc_highb = t2_adc_highb[:, slices // 2 - 10: slices // 2 + 10]
         lesion_mask = lesion_mask[:, slices // 2 - 10: slices // 2 + 10]
-        slices = 20
-        t2, adc, highb, ktrans, beta, kep, pz_mask, tz_mask = images.split(1, dim=0)
+        zonal_mask = zonal_mask[:, slices // 2 - 10: slices // 2 + 10]
+        if dce:
+            dce = dce[:, slices // 2 - 10: slices // 2 + 10]
+        # images = images[:, slices // 2 - 10: slices // 2 + 10]
+
+        t2, adc, highb = t2_adc_highb.split(1, dim=0)
+        if dce:
+            ktrans, beta, kep = dce.split(1, dim=0)
+        else:
+            ktrans = beta = kep = None
+        pz_mask = zonal_mask == 1
+        tz_mask = zonal_mask == 2
+        # t2, adc, highb, ktrans, beta, kep, pz_mask, tz_mask = images.split(1, dim=0)
+        if not t2.shape[-3] == adc.shape[-3] == highb.shape[-3] == pz_mask.shape[-3] == tz_mask.shape[-3] == lesion_mask.shape[-3]:
+            print(t2.shape, adc.shape, highb.shape, pz_mask.shape, tz_mask.shape, lesion_mask.shape)
+            raise ValueError('??')
+        
         results = dict(
             t2=t2,
             adc=adc,
             highb=highb,
-            ktrans=ktrans,
-            beta=beta,
-            kep=kep,
             pz_mask=pz_mask,
             tz_mask=tz_mask,
             mask=lesion_mask,
             case_id=osp.splitext(case.split(os.sep)[-1])[0]
         )
+        if dce:
+            results.update(dict(
+                ktrans=ktrans,
+                beta=beta,
+                kep=kep,
+            ))
 
         size = 128
         transforms_train = Compose([

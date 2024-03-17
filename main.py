@@ -29,15 +29,13 @@ def parse_args():
     # parser.add_argument('--input_size',default=128,type=int,help='input size of the HW dimension of the image')
     parser.add_argument('--lr', default=1e-2, type=float,help='learning rate')
     parser.add_argument('--pfile_path', default='cv_ids_withNeg.p', type=str,help='relative path of each case, with grouping for cross-validation')
-    parser.add_argument('--data',default='/home/kzhao/prostate-cancer-with-dce/dataset-with-dce', type=str,help='absolute path of the whole dataset')
+    parser.add_argument('--data',default='datasets/recentered_corrected_npy', type=str,help='absolute path of the whole dataset')
 
     parser.add_argument('--work_dir', default='work_dirs/example', type=str)
     parser.add_argument('--workers',default=4, type=int)
 
     parser.add_argument('--batch_size',default=4, type=int,help='Overall size of each batch')
-    parser.add_argument('--label_set',default=2, type=float, help='0: GS=6, 1: GS>=6, 2: GS>=7, 3: TP(GS=6), 4: TP(GS>=6), 5: TP(GS>=7), 6: FN, 7: FP')
-    parser.add_argument('--pe_dim',default=32, type=int,help='The dimension of vector of positional embedding')
-    
+
     parser.add_argument('--is_focalloss_bceonly',default=False,help='Will we only use BCE loss while applyFocal Loss',action='store_true')
     parser.add_argument('--is_focalloss_bceweighted',default=True,help='Will we weighted while using BCE loss while applyFocal Loss',action='store_true')
     parser.add_argument('--focal_alpha',default=0.75,type=float,help='The parameter Alpha in the formula of Focalloss')                                                                          
@@ -97,7 +95,7 @@ def train(args):
     for fold in range(args.folds):
 
         # Select network you want to use.
-        network = nnUNet25D(in_channels=len(args.images), out_channels=1)
+        network = nnUNet3D(in_channels=len(args.images), out_channels=1)
         network = network.to(device)
 
         # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
