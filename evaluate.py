@@ -218,7 +218,7 @@ def main():
     if len(sys.argv) >= 3:
         save_path = sys.argv[2]
     else:
-        save_path = src_path.strip(os.sep) + '-eval'
+        save_path = os.path.normpath(src_path) + '-eval'
 
     src_list = os.listdir(src_path)
     src_list.sort()
@@ -259,7 +259,11 @@ def main():
         # If with negMRI dataset and/or mirrored dataset, idx_dict =4
         # If the original dataset, idx_dict = 3
         # edit in 09282022
-        tmp_name = mask_list[i].split('_mask')[0]
+        if 'Anon' in mask_list[i]:
+            tmp_name = mask_list[i].split('_mas')[0].split('_')[-1]
+        else:
+            tmp_name = '_'.join(mask_list[i].split('_mask')[0].split('_')[-2:])
+        # tmp_name = mask_list[i].split('_mask')[0]
 
         if tmp_name in patient_ids:
             assert(False) # duplicate ids!
@@ -366,10 +370,8 @@ def main():
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
 
-    save_path = save_path.strip(os.sep)
     os.makedirs(osp.dirname(save_path), exist_ok=True)
     fig.savefig(save_path + '-roc.pdf')
-
     savemat(
         save_path + '-eval.mat',
         dict(
