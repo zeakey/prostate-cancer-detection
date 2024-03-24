@@ -371,6 +371,7 @@ def main():
     ax.legend(loc="lower right", prop={'size': 11})
 
     os.makedirs(osp.dirname(save_path), exist_ok=True)
+    print(f"Saving results to {save_path}")
     fig.savefig(save_path + '-roc.pdf')
     savemat(
         save_path + '-eval.mat',
