@@ -199,17 +199,6 @@ def _bootstrap(fp_count, tp_count, inst_count, b_iteration=1000, percentile=95):
         l_conf = np.percentile(b_sensitivity, q=(100.0-percentile)/2, axis=0)
         return l_conf, u_conf, b_avg_fp
 
-def _set_ax(ax, x_label, y_label, fig_title):
-    ax.set_ylim([0.0, 1.0])
-    ax.set_yticks(np.arange(0.0, 1.01, 0.2))
-    ax.set_xlim([0.0, 10])
-    ax.grid(True)
-    ax.set_xlabel(x_label, fontsize=7, labelpad=1)
-    ax.set_ylabel(y_label, fontsize=7, labelpad=1)
-    ax.tick_params(labelsize=7, length=1.5, pad=1)
-    ax.set_title(fig_title)
-    
-
 def main():
     fd_list = ["work_dirs/3d"]
 
@@ -360,19 +349,20 @@ def main():
     l_conf_cs, u_conf_cs, b_avg_fp = _bootstrap(fp_cnt_cs, tp_cnt_cs, inst_cnt_cs)
     plt.figure()    
     fig, ax = plt.subplots()
-    _set_ax(ax, 
-            x_label='False positives per patient',
-            y_label='Sensitivity',
-            fig_title='FROC')
+    ax.set_ylim([0.0, 1.0])
+    ax.set_xlim([0, 3])
+    ax.grid(True)
     
     # ax.semilogx(b_avg_fp, sen, label='All')
     ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax.legend(loc="lower right", prop={'size': 11})
 
-    os.makedirs(osp.dirname(save_path), exist_ok=True)
+    if osp.dirname(save_path) != '':
+        os.makedirs(osp.dirname(save_path), exist_ok=True)
     print(f"Saving results to {save_path}")
     fig.savefig(save_path + '-roc.pdf')
+    fig.savefig(save_path + '-roc.jpg')
     savemat(
         save_path + '-eval.mat',
         dict(
