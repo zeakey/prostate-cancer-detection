@@ -1,16 +1,34 @@
-import pickle, os, torch, mmcv
+import pickle, os, torch, mmcv, sys
 import numpy as np
 from glob import glob
 from torchvision.utils import save_image
 from einops import rearrange
 from os.path import join
 from vlkit.image import normalize
+from vlkit.transforms import center_crop
+from vlkit.io import read_dicom_data
+
+import matplotlib.pyplot as plt
+cm = plt.get_cmap('gist_rainbow')
 
 
 cases = glob("/media/hdd2/prostate-cancer-with-dce/Kai_Code_03152024/pfiles/Proposed_AtPCaNet/inference_results/*_mask_*")
 save_dir = 'data/visualizations/pred/'
 
 t2adc_dir = '/media/hdd2/datasets/prostate-cancer-detection/Dataset_withNeg_recentered_corrected_09212022'
+
+
+dce_results_dir = '/media/hdd2/prostate-cancer-with-dce/dce-results/1_25DG6AM6'
+
+for j in ['ktrans', 'kep', 't0', 'beta']:
+    imgs = read_dicom_data(join(dce_results_dir, j)) 
+    for i, k in enumerate(imgs):
+        k = normalize(k, 0, 1)
+        k = center_crop(k, 64)
+        k = (cm(k) * 255).astype(np.uint8)
+        mmcv.imwrite(k, join(save_dir, '10042_1_003Tnq2B-dce-results', j, f"{i}.png"), auto_mkdir=True)
+
+sys.exit()
 
 
 for case in cases:

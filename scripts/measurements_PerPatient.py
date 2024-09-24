@@ -143,7 +143,7 @@ def main():
     savemat(
         save_path,
         dict(
-            sens_mean=np.squeeze(sens_mean),
+            sensitivity=np.squeeze(sens_mean),
             l_conf_cs=np.squeeze(l_conf_cs),
             u_conf_cs=np.squeeze(u_conf_cs),
             b_avg_fp=np.squeeze(b_avg_fp)

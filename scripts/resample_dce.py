@@ -62,12 +62,7 @@ for case in tqdm(cases):
             dce_success = False
             miss.write(f"{case_id}: couldn't read voxels.\n")
             continue
-        # if t2_vox.coords[:, :, :, -1].unique().size() != dce_vox.coords[:, :, :, -1].unique().size() or \
-        #     (t2_vox.coords[:, :, :, -1].unique().sort().values - dce_vox.coords[:, :, :, -1].unique().sort().values).abs().sum() > 1e-2:
-        #     if d == 'ktrans':
-        #         dce_success = False
-        #         miss.write(f"{case_id}: cannot align, bad coordinates\n")
-        #     continue
+
         dce_resampled = torch.tensor(resample_volume(dce_vol, t2_vol))
         if dce_resampled.shape[-2:] != size:
             dce_resampled = torch.nn.functional.interpolate(dce_resampled.unsqueeze(dim=0), size=size).squeeze()
