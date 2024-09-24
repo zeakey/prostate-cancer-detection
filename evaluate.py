@@ -1,7 +1,6 @@
 #import cv2
 from PIL import Image
 import pickle
-import matplotlib.pyplot as plt
 import numpy as np
 import os, sys
 import os.path as osp
@@ -54,6 +53,8 @@ def LocalMaxi_Ruiming(src_path, img_path, pfile_dict_mask, pfile_dict_pred,insta
         # probs: (depth, height, width)
         n, h, w = probs.shape
         if np.amax(probs) <= 0:
+            print("???????")
+            sys.exit(1)
             return np.array([[10, 64, 64]]), np.array([1e-3])
     
         footprint = np.ones((3, 7, 7))  # todo: put slice spacing into account
@@ -248,22 +249,17 @@ def main():
         # If with negMRI dataset and/or mirrored dataset, idx_dict =4
         # If the original dataset, idx_dict = 3
         # edit in 09282022
-        if 'Anon' in mask_list[i]:
-            tmp_name = mask_list[i].split('_mas')[0].split('_')[-1]
-        else:
-            tmp_name = '_'.join(mask_list[i].split('_mask')[0].split('_')[-2:])
-        # tmp_name = mask_list[i].split('_mask')[0]
+        tmp_name = mask_list[i].split("_mask")[0]
 
-        if tmp_name in patient_ids:
-            assert(False) # duplicate ids!
+        assert tmp_name not in patient_ids
 
         patient_ids.append(tmp_name)
         tmp_mask_path = os.path.join(src_path, mask_list[i])
-        tmp_mask_data = pickle.load(open(tmp_mask_path, "rb")).detach().cpu().numpy().squeeze()
+        tmp_mask_data = np.load(tmp_mask_path)
         pfile_dict_mask[tmp_name] = tmp_mask_data
 
         tmp_pred_path = os.path.join(src_path, pred_list[i])
-        tmp_pred_data = pickle.load(open(tmp_pred_path, "rb")).detach().cpu().numpy().squeeze()
+        tmp_pred_data = np.load(tmp_pred_path)
         pfile_dict_pred[tmp_name] = tmp_pred_data
 
         assert(tmp_pred_data.shape == tmp_mask_data.shape)
@@ -364,12 +360,12 @@ def main():
     fig.savefig(save_path + '-roc.pdf')
     fig.savefig(save_path + '-roc.jpg')
     savemat(
-        save_path + '-eval.mat',
+        save_path,
         dict(
-            sen_all=sen_all,
-            l_conf_cs=l_conf_cs,
-            u_conf_cs=u_conf_cs,
-            b_avg_fp=b_avg_fp
+            sensitivity=np.squeeze(sen_all),
+            l_conf_cs=np.squeeze(l_conf_cs),
+            u_conf_cs=np.squeeze(u_conf_cs),
+            b_avg_fp=np.squeeze(b_avg_fp)
         )
     )
 
