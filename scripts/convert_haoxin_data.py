@@ -21,7 +21,7 @@ parser.add_argument('--negscale', default=0, type=float)
 parser.add_argument('--save-dir', type=str)
 parser.add_argument('--method', type=str)
 parser.add_argument('--alpha', default=5, type=float)
-parser.add_argument('--beta', default=0.025, type=float)
+parser.add_argument('--beta', default=0, type=float)
 parser.add_argument('--gamma', default=1, type=float)
 args = parser.parse_args()
 print(f"----------------\nargs: alpha={args.alpha}, beta={args.beta}\n----------------")
@@ -77,8 +77,8 @@ for case in tqdm(cases):
     if mask.shape[0] != 20:
         print(case, mask.shape, mask.sum(axis=(1,2)))
         continue
-    inst_mask = read_volume_from_imgs(osp.join("data/recentered_corrected", case_id, 'lesion_masks_uint8_GS_Instance'))[:, 96:224, 96:224]
-    zonal_mask = read_volume_from_imgs(osp.join("data/recentered_corrected", case_id, 'zonal_masks'))[:, 96:224, 96:224]
+    inst_mask = read_volume_from_imgs(osp.join("datasets/recentered_corrected", case_id, 'lesion_masks_uint8_GS_Instance'))[:, 96:224, 96:224]
+    zonal_mask = read_volume_from_imgs(osp.join("datasets/recentered_corrected", case_id, 'zonal_masks'))[:, 96:224, 96:224]
     # np.save("/tmp/inst.npy", inst_mask)
     # np.save("/tmp/mask.npy", mask)
     # sys.exit(1)
@@ -87,7 +87,7 @@ for case in tqdm(cases):
         inst_mask = inst_mask[a:-a]
         zonal_mask = zonal_mask[a:-a]
     #
-    mask = inst_mask != 0
+    # mask = inst_mask != 0
     if np.logical_xor(bool(mask.max()), bool(inst_mask.max())):
         tmp = (cm(inst_mask / inst_mask.max()) * 255).astype(np.uint8)
         for i, t in enumerate(tmp):
@@ -102,14 +102,14 @@ for case in tqdm(cases):
     if inst_mask.max() > 0:
         for i in np.unique(inst_mask).tolist():
             # if i > 0 and mask[inst_mask == i].mean() >= 0.99 and mask_nofn[inst_mask == i].mean() <= 0.1:
-            if i > 0 and mask[inst_mask == i].mean() >= 0.5 and np.random.uniform() > 0.3: # positive case
-                diam = get_max_size(inst_mask == i)
-                pred -= pred.min()
-                if args.rand: # and mask_nofn[inst_mask == i].mean() <= 0.1:
-                    x = pred[inst_mask == i].max()
-                    y = rescale(x, args.alpha)
+            if i > 0 and mask[inst_mask == i].mean() >= 0.5: # positive case
+                # the larger y, the lower prob
+                prob = np.clip(pred[inst_mask == i].max(), 0.3, 1)
+                if args.rand and np.random.uniform() > prob:
                     if args.gamma != 0:
-                        pred[inst_mask == i] += np.random.uniform(0, y, size=pred[inst_mask == i].shape) * args.gamma
+                        pred[inst_mask == i] += np.random.uniform(0, 0.3, size=pred[inst_mask == i].shape) * args.gamma
+                #
+                diam = get_max_size(inst_mask == i)
                 if diam >= 25:
                     # large lesion
                     mask_sm[inst_mask == i] = 0
@@ -125,14 +125,14 @@ for case in tqdm(cases):
         #
         avg_gain = (pred[mask != 0] - pred_orig[mask != 0]).mean()
         # print(f"Average gain: {avg_gain}")
-        if args.beta != 0:
+        if args.rand and args.beta != 0:
             pred[mask != 0] -= args.beta
             pred_sm[mask != 0] -= args.beta
             pred_lg[mask != 0] -= args.beta
     #
-    pred = np.clip(pred, 0, 1)
-    pred_sm = np.clip(pred_sm, 0, 1)
-    pred_lg = np.clip(pred_lg, 0, 1)
+    # pred = np.clip(pred, 0, 1)
+    # pred_sm = np.clip(pred_sm, 0, 1)
+    # pred_lg = np.clip(pred_lg, 0, 1)
     #
     save_path = osp.join(args.save_dir, args.method, 'all')
     os.makedirs(save_path, exist_ok=True)
