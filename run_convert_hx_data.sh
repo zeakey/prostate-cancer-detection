@@ -1,6 +1,12 @@
 set -ex
 
-savedir="data/trick/sep26-fn-tp-pz-tz"
+if [ $# -lt 1 ]; then
+    echo "at least one arg (got $#)"
+    exit 1
+else
+    echo $#
+    savedir=$1
+fi
 
 for method in Proposed_AtPCaNet  #ResidualUNet3D  SEResUNet3D   VNet  VoxResNet unetr AttentionUNet3D  nnUNet
 do
@@ -12,19 +18,22 @@ do
     python evaluate.py "$savedir1/$method/all" "$savedir1/eval.all.mat"
     python evaluate.py "$savedir1/$method/FN" "$savedir1/eval.fn.mat"
     python evaluate.py "$savedir1/$method/TP" "$savedir1/eval.tp.mat"
-    # python evaluate.py "$savedir1/$method/small" "$savedir1/eval.small.mat"
-    # python evaluate.py "$savedir1/$method/large" "$savedir1/eval.large.mat"
+    python evaluate.py "$savedir1/$method/small" "$savedir1/eval.small.mat"
+    python evaluate.py "$savedir1/$method/large" "$savedir1/eval.large.mat"
     python evaluate.py "$savedir1/$method/PZ" "$savedir1/eval.pz.mat"
     python evaluate.py "$savedir1/$method/TZ" "$savedir1/eval.tz.mat"
+    #
+    find $savedir1 -name "*_pred.npy" -exec rm {} \;
+    find $savedir1 -name "*_mask.npy" -exec rm {} \;
 
     evals_all+=( $all)
     evals_fn+=( $fn)
     evals_patient+=($patient)
-    for alpha in 4  8 12 16 
+    for seed in 0 1 2 3
     do
         for beta in 0 0.5 1
         do
-            for gamma in -0.5 -0.25 -0.125 -0.0625 -0.03125 0 0.125 0.25 0.5 1
+            for gamma in -1 -0.125 0 0.125 0.5 1
             do
                 savedir1="$savedir/$method/alpha$alpha-beta$beta-gamma$gamma"
                 #
