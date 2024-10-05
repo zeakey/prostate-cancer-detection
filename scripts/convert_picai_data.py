@@ -15,8 +15,8 @@ parser=argparse.ArgumentParser(description='Detection Project')
 parser.add_argument('--savedir', type=str)
 parser.add_argument('--debug', action="store_true")
 parser.add_argument('--seed', default=0, type=int)
-parser.add_argument('--negscale', default=0, type=float)
 parser.add_argument('--method', type=str)
+parser.add_argument('--rand', action="store_true")
 parser.add_argument('--alpha', default=5, type=float)
 parser.add_argument('--beta', default=10, type=float)
 args = parser.parse_args()
@@ -28,14 +28,14 @@ save_dir = f"{args.savedir}/alpha{args.alpha}-beta{args.beta}-seed{args.seed}/in
 os.makedirs(save_dir, exist_ok=True)
 
 
-
-
 plt.plot(np.linspace(0, 1, 100), rescale(np.linspace(0, 1, 100), args.alpha))
 plt.savefig(osp.join(save_dir, 'rescale.png'))
 print(f"Rescale curve saved to {osp.join(save_dir, 'rescale.png')}.")
 
 
 preds = glob(f"/webdata/prostate/cancer_detection_crosslice/results_PICAI/3DUNet/inference_results/*_pred_*.p")
+
+inst_mask_dir = '/media/hdd2/prostate-cancer-with-dce/results_PICAI/inst_mask'
 
 for pred in tqdm(preds):
     fn = pred.split(os.sep)[-1]
@@ -51,25 +51,18 @@ for pred in tqdm(preds):
     if mask.ndim == 5:
         mask = mask[0]
 
-    if mask.sum() > 0 and args.beta > 0:
-        # print("Pos mean before: ", pred[mask != 0].mean())
-        y = rescale(pred[mask != 0], args.alpha)
-        y -= y.min()
-        y += y.max()
-        y /= args.beta
-        pred[mask != 0] += torch.normal(y, 0.05).numpy()
-        # print("Pos mean after: ", pred[mask != 0].mean())
-    if args.beta > 0 and False:
-        # print("neg mean before: ", pred[mask == 0].mean())
-        rs = rescale(pred[mask == 0], args.alpha)
-        rs -= rs.min()
-        rs /= rs.max()
-        y = 1 - rs
-        y /= args.beta
-        # print(y.min(), y.max())
-        pred[mask == 0] -= torch.normal(y, 0.05).numpy()
-        # print("neg mean after: ", pred[mask == 0].mean())
-        pred.clip(0, 1)
+    if mask.sum() > 0:
+        inst_mask = torch.tensor(np.load(f"{inst_mask_dir}/{fn.split('_pred')[0]}.npy")[None, :, :, :]).to(torch.uint8)
+        for i in np.unique(inst_mask).tolist():
+            if i != 0:
+                prob = np.clip(pred[inst_mask == i].max(), 0.3, 1)
+                if args.rand and np.random.uniform() > prob:
+                    assert mask[inst_mask == i].mean() > 0.9, mask[inst_mask == i].mean()
+                    pred[inst_mask == i] += torch.tensor(np.random.uniform(0, 0.3, size=pred[inst_mask == i].shape)) * args.alpha
+        if args.rand and args.beta != 0:
+            pred[mask != 0] -= args.beta
+        pred = np.clip(pred, 0, 1)
+
     pickle.dump(pred, open(osp.join(save_dir, fn), 'wb'))
     if args.debug and mask.sum() > 0:
         for i in range(pred.shape[1]):
