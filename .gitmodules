@@ -1,0 +1,3 @@
+[submodule "picai_labels"]
+	path = picai_labels
+	url = https://github.com/DIAGNijmegen/picai_labels
