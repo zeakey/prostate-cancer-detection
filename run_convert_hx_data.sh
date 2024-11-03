@@ -15,6 +15,8 @@ do
     evals_patient=()
     savedir1="${savedir}/$method/origin"
     python scripts/convert_haoxin_data.py --method $method --save-dir $savedir1
+    #
+    python scripts/measurements_PerPatient.py "$savedir1/$method/all" "$savedir1/eval.perpatient.mat"
     python evaluate.py "$savedir1/$method/all" "$savedir1/eval.all.mat"
     python evaluate.py "$savedir1/$method/FN" "$savedir1/eval.fn.mat"
     python evaluate.py "$savedir1/$method/TP" "$savedir1/eval.tp.mat"
@@ -22,38 +24,31 @@ do
     python evaluate.py "$savedir1/$method/large" "$savedir1/eval.large.mat"
     python evaluate.py "$savedir1/$method/PZ" "$savedir1/eval.pz.mat"
     python evaluate.py "$savedir1/$method/TZ" "$savedir1/eval.tz.mat"
-    #
-    find $savedir1 -name "*_pred.npy" -exec rm {} \;
-    find $savedir1 -name "*_mask.npy" -exec rm {} \;
+    # #
+    # find $savedir1 -name "*_pred.npy" -exec rm {} \;
+    # find $savedir1 -name "*_mask.npy" -exec rm {} \;
 
     evals_all+=( $all)
     evals_fn+=( $fn)
     evals_patient+=($patient)
-    for seed in 0 1 2 3
+    for seed in 0
     do
-        for beta in 0 0.5 1
+        for beta in 0
         do
-            for gamma in -1 -0.125 0 0.125 0.5 1
+            for gamma in 0.025 0.05 0.075 0.1 0.125 0.15 0.175 0.2 0.225 0.25
             do
-                savedir1="$savedir/$method/alpha$alpha-beta$beta-gamma$gamma"
-                #
-                all="$savedir1/eval.all.mat"
-                fn="$savedir1/eval.fn.mat"
-                tp="$savedir1/eval.tp.mat"
-                small="$savedir1/eval.small.mat"
-                large="$savedir1/eval.large.mat"
-                patient="$savedir1/eval.perpatient.mat"
+                savedir1="$savedir/$method/seed$seed-beta$beta-gamma$gamma"
                 #
                 if [[ ! -e "$all" || ! -e "$fn" || ! -e "$patient" ]]; then
-                    python scripts/convert_haoxin_data.py --method $method --rand --alpha $alpha --beta $beta --gamma $gamma --save-dir $savedir1
-                    python evaluate.py "$savedir1/$method/all" $all
-                    python evaluate.py "$savedir1/$method/FN" $fn
-                    python evaluate.py "$savedir1/$method/TP" $tp
+                    python scripts/convert_haoxin_data.py --method $method --rand --beta $beta --gamma $gamma --save-dir $savedir1
+                    python evaluate.py "$savedir1/$method/all" "$savedir1/eval.all.mat"
+                    python evaluate.py "$savedir1/$method/FN" "$savedir1/eval.fn.mat"
+                    python evaluate.py "$savedir1/$method/TP" "$savedir1/eval.tp.mat"
                     python evaluate.py "$savedir1/$method/PZ" "$savedir1/eval.pz.mat"
                     python evaluate.py "$savedir1/$method/TZ" "$savedir1/eval.tz.mat"
-                    # python evaluate.py "$savedir1/$method/small" $small
-                    # python evaluate.py "$savedir1/$method/large" $large
-                    # python scripts/measurements_PerPatient.py "$savedir1/$method/all" $patient
+                    python evaluate.py "$savedir1/$method/small" "$savedir1/eval.small.mat"
+                    python evaluate.py "$savedir1/$method/large" "$savedir1/eval.large.mat"
+                    python scripts/measurements_PerPatient.py "$savedir1/$method/all" "$savedir1/eval.perpatient.mat"
                     find $savedir1 -name "*_pred.npy" -exec rm {} \;
                     find $savedir1 -name "*_mask.npy" -exec rm {} \;
                 fi
@@ -63,10 +58,4 @@ do
             done
         done
     done
-    # python  draw_roc.py --evals ${evals_all[@]} --savefig "$savedir/$method-all-roc.pdf"
-    # python  draw_roc.py --evals ${evals_fn[@]} --savefig "$savedir/$method-fn-roc.pdf"
-    # python  draw_roc.py --evals ${evals_patient[@]} --savefig "$savedir/$method-patient-roc.pdf"
 done
-
-# python  draw_roc.py --evals ${evals[@]} --savefig april14-FN.pdf
-# python scripts/convert_haoxin_data.py --seed 1 --save-dir /media/hdd2/prostate-cancer-with-dce/trick/1
