@@ -3,7 +3,8 @@ from PIL import Image
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
-import os
+import os, sys
+import os.path as osp
 import scipy.ndimage as ndimage  #gaussian_filter,maximum_filter
 import pickle
 from skimage.feature import peak_local_max
@@ -285,22 +286,16 @@ def label(im):
 
 
 def main():
-    root_path='/media/hdd18t/prostate-cancer-with-dce/results_PICAI/'
+    root_path = osp.abspath(osp.join(sys.argv[1], ".."))
     #root_path='results/'
-    fd_list=['3DUNet']
-    #fd_list=['AxCroSaUNet/','AxCroSaUNet_dirichlet_/','CSAMUNet/','VTUNet/','UNETR/','AttentionUNet/','VoxResNet/','VNet/','SEResUNet/','ResidualUNet/','nnUNet/']
-    #fd_list=['AxCroSaUNet_dirichlet/','CSAMUNet/']
-    #fd_list=['UNETR/','AttentionUNet/','VoxResNet/','VNet/','SEResUNet/','ResidualUNet/','nnUNet/']
-    #fd_list=['AxCroSaUNet_dropout/']
-    #fd_list=['AxCroSaUNet_2_dirichlet/','AxCroSaUNet_2/','AxCroSaUNet_2_dropout/']
-    #uncertainty_list=[False,False,False,False]
+    fd_list=[sys.argv[1].split('/')[-1]]
     uncertainty_list=[]
     for i in range(len(fd_list)):
         uncertainty_list.append(False)
     for fd_idx in range(len(fd_list)):
         for inference_name in ["inference_results"]:  # inference_results_new_model_old_ds, inference_results_mergedDataset
-            tgt_experiment=root_path+fd_list[fd_idx]
-            mode=root_path+fd_list[fd_idx]
+            tgt_experiment=osp.join(root_path, fd_list[fd_idx])
+            mode=osp.join(root_path, fd_list[fd_idx])
             uncertainty=uncertainty_list[fd_idx]
             print(fd_idx,tgt_experiment)
             #img_path = "../data/temp_cancer/"
@@ -387,22 +382,8 @@ def main():
                 #mask_data=np.load(mask_path)[0,:,96:224,96:224]
                 print(i/len(pfile_dict_pred))
                 #inst_mask_stack=label(pfile_dict_mask[case_name])
-                inst_mask_stack=np.load(root_path+'inst_mask/'+case_name+'.npy')
-                '''
-                gt_mask_path = os.path.join(img_path, case_name, "lesion_masks_uint8_GS_Zonal_Sep")
-                gt_mask_list = os.listdir(gt_mask_path)
-                gt_mask_list.sort()
+                inst_mask_stack=np.load(osp.join(root_path, 'inst_mask', case_name+'.npy'))
 
-                inst_mask_path = os.path.join(img_path, case_name, "lesion_masks_uint8_GS_Instance")
-                inst_mask_list = os.listdir(inst_mask_path)
-                inst_mask_list.sort()
-
-
-                inst_mask_stack = np.zeros((len(inst_mask_list), 128, 128))
-                for j in range(len(inst_mask_list)):
-                    tmp_mask = cv2.imread(os.path.join(inst_mask_path, inst_mask_list[j]))[96:224, 96:224, 0]
-                    inst_mask_stack[j, :, :] = tmp_mask
-                '''
                 # Stack all 2D mask to form a 3D volume, and stack all 2D prediction
                 # to form a 3D volume. Then we calculate the FROC using the 3D mask
                 # and 3D prediciton since lesion should be calculated based on 3D
