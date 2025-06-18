@@ -94,12 +94,12 @@ def train(args):
     # We do 5-fold cross-validation
     for fold in range(args.folds):
 
-        # Select network you want to use.
-        network = nnUNet25D(in_channels=len(args.images), out_channels=1)
-        network = network.to(device)
+        # Select model you want to use.
+        model = nnUNet3D(in_channels=len(args.images), out_channels=1)
+        model = model.to(device)
 
-        # optimizer=torch.optim.Adam(network.parameters(), lr=args.lr)
-        optimizer = torch.optim.SGD(network.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+        # optimizer=torch.optim.Adam(model.parameters(), lr=args.lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
         train_dataset=Dataloader_3D(data_root=args.data, split='train', fold=fold, folds=args.folds)
         train_loader=torch.utils.data.DataLoader(
@@ -119,6 +119,7 @@ def train(args):
             pin_memory=True,
             sampler=None,
             drop_last=True)
+        logger.info(f"Training dataset has {len(train_dataset)} samples, and test dataset has {len(val_dataset)}")
 
         lrscheduler = CosineScheduler(
             max_iters=args.epochs * len(train_loader),
@@ -128,7 +129,7 @@ def train(args):
         )
 
         for epoch in range(args.epochs):
-            network.train()
+            model.train()
             for batch, data in enumerate(train_loader):
                 mask = data['mask']
                 img = torch.cat([data[im] for im in args.images], dim=1)
@@ -138,7 +139,7 @@ def train(args):
 
                 optimizer.zero_grad()
 
-                logits, pred = network(img)
+                logits, pred = model(img)
                 loss = focal_loss(args, logits, mask.to(bool).to(torch.float))
                 loss.backward()
                 lr = lrscheduler.step()
@@ -195,10 +196,10 @@ def train(args):
                     
                     grid = normalize(rearrange(grid, 'c h w -> h w c').cpu().numpy(), 0, 255).astype(np.uint8)
                     mmcv.imwrite(grid, osp.join(args.work_dir, 'images', f'fold{fold}-epoc{epoch}-iter{batch}-{case_id}.png'))
-            torch.save(network.state_dict(), osp.join(args.work_dir, f'best_model_{fold}_final.pt'))
+            torch.save(model.state_dict(), osp.join(args.work_dir, f'ckpt-fold{fold:02d}-epoch{epoch:03d}.pt'))
             # validation
             with torch.no_grad():
-                network.eval()
+                model.eval()
                 loss = 0
                 for batch, data in enumerate(val_loader):
                     mask = data['mask']
@@ -207,7 +208,7 @@ def train(args):
                     img=img.to(device)
                     mask = mask.to(device)
 
-                    logits, pred = network(img)
+                    logits, pred = model(img)
                     loss += focal_loss(args, logits, mask.to(bool).to(torch.float))
 
                     if (epoch+1) % 5 == 0 or (epoch+1) == args.epochs:
