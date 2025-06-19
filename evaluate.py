@@ -190,15 +190,18 @@ def _bootstrap(fp_count, tp_count, inst_count, b_iteration=1000, percentile=95):
         n_thres = fp_count.shape[1]
         b_sensitivity = np.zeros((b_iteration, n_thres))
         b_avg_fp = np.zeros((b_iteration, n_thres))
+        b_precision = np.zeros((b_iteration, n_thres))
         for b_i in range(b_iteration):
             sample_idx = np.random.randint(0, n, n)
             b_sensitivity[b_i, :] = np.sum(tp_count[sample_idx, :], axis=0) / np.sum(inst_count[sample_idx])
             b_avg_fp[b_i, :] = np.sum(fp_count[sample_idx, :], axis=0) / n
-            
+            b_precision[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(tp_count[sample_idx,:] + fp_count[sample_idx,:], axis=0)
+
+        b_precision = b_precision.mean(axis=0)
         b_avg_fp = np.mean(b_avg_fp, axis=0)
         u_conf = np.percentile(b_sensitivity, q=100.0 - (100.0-percentile)/2, axis=0)
         l_conf = np.percentile(b_sensitivity, q=(100.0-percentile)/2, axis=0)
-        return l_conf, u_conf, b_avg_fp
+        return l_conf, u_conf, b_avg_fp, np.squeeze(b_precision)
 
 def main():
     fd_list = ["work_dirs/3d"]
@@ -208,7 +211,7 @@ def main():
     if len(sys.argv) >= 3:
         save_path = sys.argv[2]
     else:
-        save_path = os.path.normpath(src_path) + '-eval'
+        save_path = osp.join(os.path.normpath(src_path), 'eval')
 
     src_list = os.listdir(src_path)
     src_list.sort()
@@ -342,17 +345,18 @@ def main():
                                                                                 output_pts=False,
                                                                                 output_raw=True)
     
-    l_conf_cs, u_conf_cs, b_avg_fp = _bootstrap(fp_cnt_cs, tp_cnt_cs, inst_cnt_cs)
+    l_conf_cs, u_conf_cs, b_avg_fp, precision = _bootstrap(fp_cnt_cs, tp_cnt_cs, inst_cnt_cs)
     plt.figure()    
-    fig, ax = plt.subplots()
-    ax.set_ylim([0.0, 1.0])
-    ax.set_xlim([0, 3])
-    ax.grid(True)
-    
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.set_xlim(0, 6)
+    ax1.set_ylim(0, 1)
+    #
+    ax2.set_xlim(0, 1)
+    ax2.set_ylim(0, 1)
     # ax.semilogx(b_avg_fp, sen, label='All')
-    ax.plot(b_avg_fp, sen_all, label='All csPCa, GS>=3+4 - 3D')
-    ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
-    ax.legend(loc="lower right", prop={'size': 11})
+    ax1.plot(np.squeeze(b_avg_fp), np.squeeze(sen_all))
+    ax1.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
+    ax2.plot(precision, np.squeeze(sen_all))
 
     if osp.dirname(save_path) != '':
         os.makedirs(osp.dirname(save_path), exist_ok=True)
@@ -360,12 +364,12 @@ def main():
     fig.savefig(save_path + '-roc.pdf')
     fig.savefig(save_path + '-roc.jpg')
     savemat(
-        save_path,
+        save_path + "roc.mat",
         dict(
-            sensitivity=np.squeeze(sen_all),
+            recall=np.squeeze(sen_all),
             l_conf_cs=np.squeeze(l_conf_cs),
             u_conf_cs=np.squeeze(u_conf_cs),
-            b_avg_fp=np.squeeze(b_avg_fp)
+            fp=np.squeeze(b_avg_fp)
         )
     )
 

@@ -10,7 +10,9 @@ import pickle
 from skimage.feature import peak_local_max
 from skimage.morphology import binary_dilation,disk
 import cv2
+from scipy.io import savemat
 import matplotlib.pyplot as plt
+from glob import glob
 
 _5mm_ball=np.array([np.pad(disk(6),[(2,2),(2,2)],'constant'),disk(8),
                     np.pad(disk(6),[(2,2),(2,2)],'constant')])
@@ -184,31 +186,34 @@ def FROC_detection_fullvol_sel_group(localized_pts,pred_confidence,gt_masks,inst
         out_sel_tp.append(case_out_sel_tp)
 
     avg_fp=np.sum(fp_count,axis=0)/num_case
-    sensitivity=np.sum(tp_count,axis=0)/np.sum(pos_inst_count)
+    sensitivity=np.sum(tp_count,axis=0) / np.sum(pos_inst_count)
     sensitivity_sel=np.sum(tp_count_sel,axis=0)/np.sum(sel_inst_count)
 
     if output_pts:
-        return avg_fp,sensitivity,sensitivity_sel,out_fp,out_tp
+        return avg_fp, sensitivity, sensitivity_sel,out_fp,out_tp
     if output_raw:
         return fp_count,tp_count_sel,sel_inst_count,per_lesion_count,lesion_count,avg_fp,sensitivity,sensitivity_sel,out_fp,out_tp
 
     return avg_fp,sensitivity,sensitivity_sel
 
 
-def _bootstrap(fp_count,tp_count,inst_count,b_iteration=1000,percentile=95):
+def _bootstrap(fp_count, tp_count, inst_count, b_iteration=1000,percentile=95):
     n=fp_count.shape[0]
     n_thres=fp_count.shape[1]
-    b_sensitivity=np.zeros((b_iteration,n_thres))
-    b_avg_fp=np.zeros((b_iteration,n_thres))
+    b_sensitivity=np.zeros((b_iteration, n_thres))
+    b_avg_fp=np.zeros((b_iteration, n_thres))
+    b_precision=np.zeros((b_iteration, n_thres))
     for b_i in range(b_iteration):
         sample_idx=np.random.randint(0,n,n)
         b_sensitivity[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(inst_count[sample_idx])
         b_avg_fp[b_i,:]=np.sum(fp_count[sample_idx,:],axis=0)/n
-
+        b_precision[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(tp_count[sample_idx,:] + fp_count[sample_idx,:], axis=0)
+    
+    b_precision = b_precision.mean(axis=0)
     b_avg_fp=np.mean(b_avg_fp,axis=0)
     u_conf=np.percentile(b_sensitivity,q=100.0-(100.0-percentile)/2,axis=0)
     l_conf=np.percentile(b_sensitivity,q=(100.0-percentile)/2,axis=0)
-    return l_conf,u_conf,b_avg_fp
+    return l_conf,u_conf,b_avg_fp, b_precision
 
 
 def _set_ax(ax,x_label,y_label,fig_title):
@@ -275,7 +280,6 @@ def label(im):
     lab=1
     label_map=np.zeros_like(im)
     xx=np.argwhere(im>0)
-    print(xx.shape)
     for x in xx:
         if label_map[x[0],x[1],x[2]]>0:
             continue
@@ -297,13 +301,12 @@ def main():
             tgt_experiment=osp.join(root_path, fd_list[fd_idx])
             mode=osp.join(root_path, fd_list[fd_idx])
             uncertainty=uncertainty_list[fd_idx]
-            print(fd_idx,tgt_experiment)
             #img_path = "../data/temp_cancer/"
             img_path='../data/prostate158__resized_and_normalized/'
             val_list=['']
             src_path=[]
             for temp_val in val_list:
-                src_path_=tgt_experiment+'/inference_results/'+temp_val
+                src_path_=tgt_experiment+'/inference_results/'
                 src_list=os.listdir(src_path_)
                 src_list.sort()
                 for i in range(len(src_list)):
@@ -319,21 +322,17 @@ def main():
                 # For example, if patient A has 20 slides of T2w images, then there will
                 # be 20 .p files for mask, and 20 .p files for prediction.
                 # Please see the example output .p files sent along with this py file
-            src_path_=tgt_experiment+'inference_results/'
+            src_path_=tgt_experiment+'/inference_results/'
             mask_list=[]
             pred_list=[]
-            uncert_list=[]
-            for i in range(len(src_path)):
-                if "mask" in src_path[i][1]:
-                    mask_list.append(src_path[i])
-                if "pred" in src_path[i][1]:
-                    pred_list.append(src_path[i])
-                if "uncertainty" in src_path[i][1]:
-                    uncert_list.append(src_path[i])
+
+            pred_list = glob(f"{src_path_}/*_pred_*.p")
+            mask_list = glob("/media/hdd18t/prostate-cancer-with-dce/results_PICAI/3DUNet/inference_results/*_mask_*.p")
 
             mask_list.sort()
             pred_list.sort()
-            uncert_list.sort()
+
+            assert len(mask_list)==len(pred_list), f"{len(mask_list)} v.s. {len(pred_list)}: Number of mask files and prediction files do not match."
 
             # Maintain two dictionaries, one for mask and one for predictions
             # Each key is patient's id, and the val is a list of masks/predictions.
@@ -347,93 +346,30 @@ def main():
             for i in range(len(mask_list)):
                 #assert('Dataset_withNeg_recentered_corrected_09212022' in mask_list[i])
                 #assert('Dataset_withNeg_recentered_corrected_09212022' in pred_list[i])
-                tmp_name=mask_list[i][1][0:13]
-                #print(tmp_name)
-                '''
-                if tmp_name in patient_ids:
-                    assert(False) # duplicate ids!
-                '''
+                tmp_name=mask_list[i].split("/")[-1].split("_mask_")[0]
 
                 patient_ids.append(tmp_name)
                 #tmp_mask_path = os.path.join(src_path, mask_list[i])
-                tmp_mask_path=os.path.join(mask_list[i][0],mask_list[i][1])
+                tmp_mask_path=mask_list[i]
                 tmp_mask_data=pickle.load(open(tmp_mask_path,"rb")).detach().cpu().numpy().squeeze()
-                #print(tmp_mask_data.shape)
                 pfile_dict_mask[tmp_name]=tmp_mask_data
 
                 #tmp_pred_path = os.path.join(src_path, pred_list[i])
-                tmp_pred_path=os.path.join(pred_list[i][0],pred_list[i][1])
+                tmp_pred_path=pred_list[i]
                 tmp_pred_data=pickle.load(open(tmp_pred_path,"rb")).detach().cpu().numpy().squeeze()
-                if uncertainty:
-                    tmp_uncert_path=os.path.join(uncert_list[i][0],uncert_list[i][1])
-                    tmp_uncert_data=pickle.load(open(tmp_uncert_path,"rb")).detach().cpu().numpy().squeeze()
-                    pfile_dict_pred[tmp_name]=tmp_pred_data*(1-tmp_uncert_data)
-                else:
-                    pfile_dict_pred[tmp_name]=tmp_pred_data
-                #print(tmp_pred_data.shape,tmp_mask_data.shape)
+                pfile_dict_pred[tmp_name]=tmp_pred_data
                 assert (tmp_pred_data.shape==tmp_mask_data.shape)
 
             instance_dict_mask={}
             for i in range(len(pfile_dict_pred)):
                 case_name=list(pfile_dict_pred.keys())[i]
-                #t2_path = os.path.join(img_path, case_name, "T2_tse_corrected_png")
-                #len_imgs = len(os.listdir(t2_path))
-                #mask_path=os.path.join(img_path, case_name,"lesion.npy")
-                #mask_data=np.load(mask_path)[0,:,96:224,96:224]
-                print(i/len(pfile_dict_pred))
-                #inst_mask_stack=label(pfile_dict_mask[case_name])
-                inst_mask_stack=np.load(osp.join(root_path, 'inst_mask', case_name+'.npy'))
-
-                # Stack all 2D mask to form a 3D volume, and stack all 2D prediction
-                # to form a 3D volume. Then we calculate the FROC using the 3D mask
-                # and 3D prediciton since lesion should be calculated based on 3D
-                # volume.
-                '''
-                pz_mask_stack = np.zeros((len_imgs, 128, 128))
-                for j in range(len(gt_mask_list)):
-                    tmp_split = gt_mask_list[j].split('+')
-                    if "PZ" not in tmp_split[4]:
-                        continue
-                    tmp_mask = cv2.imread(os.path.join(gt_mask_path, gt_mask_list[j]))[96:224, 96:224, 0]
-                    tmp_idx = int(tmp_split[0][-2:])-1
-                    pz_mask_stack[tmp_idx, :, :] += tmp_mask
-                pz_mask_stack[pz_mask_stack>0]=1
-
-                tz_mask_stack = np.zeros((len_imgs, 128, 128))
-                for j in range(len(gt_mask_list)):
-                    tmp_split = gt_mask_list[j].split('+')
-                    if "TZ" not in tmp_split[4]:
-                        continue
-                    tmp_mask = cv2.imread(os.path.join(gt_mask_path, gt_mask_list[j]))[96:224, 96:224, 0]
-                    tmp_idx = int(tmp_split[0][-2:])-1
-                    tz_mask_stack[tmp_idx, :, :] += tmp_mask
-                tz_mask_stack[tz_mask_stack>0]=1
-                '''
-
-                # 3D has it's uniqueness that we need to guarantee the z direction
-                # has a thickness of 20
-
-                # 05052022 Above steps included all lesions in the lesion folders,
-                # contains FP, FN, 3+3, 3+4, etc.... SOme cases should be
-                # filtered out with respect to the pfile_dict_mask[case_name]
-                # We here only select lesions that appeared in the pfile_dict_mask[case_name]
+                # print(i/len(pfile_dict_pred))
+                inst_mask_stack=np.load(osp.join("/media/hdd18t/prostate-cancer-with-dce/results_PICAI/inst_mask/", case_name+'.npy'))
 
                 instance_dict_mask[case_name]=inst_mask_stack
 
-            # Measurements. Just uncomment it to use.
-            #LocalMaxi_Haoxin(src_path, img_path, pfile_dict_mask, pfile_dict_pred)
             localized_pts,pred_confidence,gt_mask_list,pz_mask_list,tz_mask_list,inst_mask_list,name_list,target_path\
                 =LocalMaxi_Ruiming(src_path_,img_path,pfile_dict_mask,pfile_dict_pred,instance_dict_mask,inference_name,mode,uncertainty)
-
-            # All lesions
-            #avg_FP, sen_all, sen_sel, fp_pts, tp_pts = FROC_detection_fullvol_sel_group(localized_pts, \
-            #                                                                        pred_confidence, \
-            #                                                                        gt_masks = gt_mask_list, \
-            #                                                                        inst_masks= inst_mask_list,\
-            #                                                                        sel_gt_masks= gt_mask_list,\
-            #                                                                        expansion=_5mm_ball,\
-            #                                                                        id_list = name_list,\
-            #                                                                        output_pts=True)
 
             fp_cnt_cs,tp_cnt_cs,inst_cnt_cs,per_lesion_cnt_cs,lesion_cnt_cs,avg_FP,sen_all,sen_sel,fp_pts,tp_pts=FROC_detection_fullvol_sel_group(localized_pts,\
                                                                                                                                                   pred_confidence,\
@@ -445,36 +381,45 @@ def main():
                                                                                                                                                   output_pts=False,
                                                                                                                                                   output_raw=True)
 
-            l_conf_cs,u_conf_cs,b_avg_fp=_bootstrap(fp_cnt_cs,tp_cnt_cs,inst_cnt_cs)
-            plt.figure()
-            fig,ax=plt.subplots()
-            _set_ax(ax,
-                    x_label='False positives per patient',
-                    y_label='Sensitivity',
-                    fig_title=tgt_experiment[:6]+inference_name)
-
-            # ax.semilogx(b_avg_fp, sen, label='All')
-            ax.plot(b_avg_fp,sen_all,label='All csPCa, GS>=3+4 - 3D')
-            ax.fill_between(b_avg_fp,l_conf_cs,u_conf_cs,color='b',alpha=0.2)
-            ax.legend(loc="lower right",prop={'size':11})
+            l_conf_cs,u_conf_cs,b_avg_fp, precision =_bootstrap(fp_cnt_cs,tp_cnt_cs,inst_cnt_cs)
+            fig, (ax1, ax2)=plt.subplots(1, 2)
+            ax1.plot(b_avg_fp,sen_all,label='All csPCa, GS>=3+4 - 3D')
+            ax1.fill_between(b_avg_fp,l_conf_cs,u_conf_cs,color='b',alpha=0.2)
+            ax1.legend(loc="lower right",prop={'size':11})
+            #
+            ax1.set_xlim(0, 6)
+            ax1.set_ylim(0, 1)
+            #
+            ax2.set_xlim(0, 1)
+            ax2.set_ylim(0, 1)
+            #
+            ax2.plot(np.squeeze(precision), np.squeeze(sen_all))
             #fig.savefig(os.path.join(target_path, 'eval_FROC_Ruiming.pdf'))
-            figname = f'{tgt_experiment}_{inference_name}_FROC'
+            figname = f'{tgt_experiment}/FROC'
             fig.savefig(figname + ".png")
+            plt.close(fig)
+            savemat(figname + ".mat", {
+                'fp': np.squeeze(b_avg_fp),
+                'sensitivity_lower': np.squeeze(l_conf_cs),
+                'sensitivity_upper': np.squeeze(u_conf_cs),
+                'recall': np.squeeze(sen_all),
+                'precision': np.squeeze(precision),
+            })
 
-            #print("---------{}---------".format(target_path))
-            pickle.dump(avg_FP,open(os.path.join(target_path,'avg_FP.p'),'wb'))
-            pickle.dump(sen_all,open(os.path.join(target_path,'sen_all.p'),'wb'))
-            pickle.dump(l_conf_cs,open(os.path.join(target_path,'l_conf_cs.p'),'wb'))
-            pickle.dump(u_conf_cs,open(os.path.join(target_path,'u_conf_cs.p'),'wb'))
-            pickle.dump(sen_sel,open(os.path.join(target_path,'sen_sel.p'),'wb'))
-            pickle.dump(fp_pts,open(os.path.join(target_path,'fp_pts.p'),'wb'))
-            pickle.dump(tp_pts,open(os.path.join(target_path,'tp_pts.p'),'wb'))
-            pickle.dump(fp_cnt_cs,open(os.path.join(target_path,'fp_cnt_cs.p'),'wb'))
-            pickle.dump(tp_cnt_cs,open(os.path.join(target_path,'tp_cnt_cs.p'),'wb'))
-            pickle.dump(inst_cnt_cs,open(os.path.join(target_path,'inst_cnt_cs.p'),'wb'))
-            pickle.dump(per_lesion_cnt_cs,open(os.path.join(target_path,'per_lesion_cnt_cs.p'),'wb'))
-            pickle.dump(lesion_cnt_cs,open(os.path.join(target_path,'lesion_cnt_cs.p'),'wb'))
-            pickle.dump(b_avg_fp,open(os.path.join(target_path,'b_avg_fp.p'),'wb'))
+            # #print("---------{}---------".format(target_path))
+            # pickle.dump(avg_FP,open(os.path.join(target_path,'avg_FP.p'),'wb'))
+            # pickle.dump(sen_all,open(os.path.join(target_path,'sen_all.p'),'wb'))
+            # pickle.dump(l_conf_cs,open(os.path.join(target_path,'l_conf_cs.p'),'wb'))
+            # pickle.dump(u_conf_cs,open(os.path.join(target_path,'u_conf_cs.p'),'wb'))
+            # pickle.dump(sen_sel,open(os.path.join(target_path,'sen_sel.p'),'wb'))
+            # pickle.dump(fp_pts,open(os.path.join(target_path,'fp_pts.p'),'wb'))
+            # pickle.dump(tp_pts,open(os.path.join(target_path,'tp_pts.p'),'wb'))
+            # pickle.dump(fp_cnt_cs,open(os.path.join(target_path,'fp_cnt_cs.p'),'wb'))
+            # pickle.dump(tp_cnt_cs,open(os.path.join(target_path,'tp_cnt_cs.p'),'wb'))
+            # pickle.dump(inst_cnt_cs,open(os.path.join(target_path,'inst_cnt_cs.p'),'wb'))
+            # pickle.dump(per_lesion_cnt_cs,open(os.path.join(target_path,'per_lesion_cnt_cs.p'),'wb'))
+            # pickle.dump(lesion_cnt_cs,open(os.path.join(target_path,'lesion_cnt_cs.p'),'wb'))
+            # pickle.dump(b_avg_fp,open(os.path.join(target_path,'b_avg_fp.p'),'wb'))
 
 
 if __name__=='__main__':
