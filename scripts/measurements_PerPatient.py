@@ -15,7 +15,6 @@ import sys
 from scipy.io import savemat
 
 
-
 def _bootstrap(mask_list, pred_list, b_iteration=1000, percentile=95):
 
         mask_list = np.array(mask_list)
@@ -36,18 +35,25 @@ def _bootstrap(mask_list, pred_list, b_iteration=1000, percentile=95):
 
         b_sensitivity = np.zeros((b_iteration, num_threshold))
         b_avg_fp = np.zeros((b_iteration, num_threshold))
+        precision = np.zeros((b_iteration, num_threshold))
         for b_i in range(b_iteration):
             sample_idx = np.random.randint(0, n, n)
 
             b_sensitivity[b_i, :] = np.sum(tp_array[sample_idx, :], axis=0) / np.sum(mask_list[sample_idx])
             b_avg_fp[b_i, :] = np.sum(fp_array[sample_idx, :], axis=0) / (n-np.sum(mask_list[sample_idx]))
+            tpfp = (np.sum(tp_array[sample_idx, :], axis=0) + np.sum(fp_array[sample_idx, :], axis=0))
+            precision[b_i, :] = np.sum(tp_array[sample_idx, :], axis=0) / tpfp
+            precision[b_i, tpfp==0] = 1.0  # Avoid division by zero
+            assert np.all(np.logical_not(np.isnan(precision[b_i])))
+            print(precision[b_i].min(), precision[b_i].max())
 
         sens_mean = np.mean(b_sensitivity, axis=0)  
         b_avg_fp = np.mean(b_avg_fp, axis=0)
+        precision = np.mean(precision, axis=0)
 
         u_conf = np.percentile(b_sensitivity, q=100.0 - (100.0-percentile)/2, axis=0)
         l_conf = np.percentile(b_sensitivity, q=(100.0-percentile)/2, axis=0)
-        return l_conf, u_conf, b_avg_fp, sens_mean
+        return l_conf, u_conf, b_avg_fp, sens_mean, precision
 
 
 def _set_ax(ax, x_label, y_label, fig_title):
@@ -72,8 +78,8 @@ def main():
     if len(sys.argv) >= 3:
         save_path = sys.argv[2]
     else:
-        save_path = os.path.normpath(src_path) + '.perpatient.mat'
-  
+        save_path = osp.join(os.path.normpath(src_path), '.perpatient.mat')
+
     img_path = "datasets/recentered_corrected"
     src_path = sys.argv[1]
     src_list = os.listdir(src_path)
@@ -129,12 +135,12 @@ def main():
         assert(tmp_pred_data.shape == tmp_mask_data.shape)
     
 
-    l_conf_cs, u_conf_cs, b_avg_fp, sens_mean = _bootstrap(pfile_list_mask, pfile_list_pred)
+    l_conf_cs, u_conf_cs, b_avg_fp, sens_mean, precision = _bootstrap(pfile_list_mask, pfile_list_pred)
 
-    plt.figure()    
-    fig, ax = plt.subplots()
+    fig, (ax, ax2) = plt.subplots(1, 2)
     ax.plot(b_avg_fp, sens_mean, label='All csPCa, GS>=3+4 - 3D')
     ax.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.05)
+    ax2.plot(b_avg_fp, precision, label='Precision', color='orange')
     if osp.dirname(save_path) != '':
         os.makedirs(osp.dirname(save_path), exist_ok=True)
     print(f"Saving results to {save_path}")
@@ -146,7 +152,8 @@ def main():
             sensitivity=np.squeeze(sens_mean),
             l_conf_cs=np.squeeze(l_conf_cs),
             u_conf_cs=np.squeeze(u_conf_cs),
-            b_avg_fp=np.squeeze(b_avg_fp)
+            b_avg_fp=np.squeeze(b_avg_fp),
+            precision=np.squeeze(precision)
         )
     )
     print(f"Mat data saved to {save_path}")
