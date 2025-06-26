@@ -366,6 +366,7 @@ def main():
     savemat(
         save_path + "roc.mat",
         dict(
+            precision=np.squeeze(precision),
             recall=np.squeeze(sen_all),
             l_conf_cs=np.squeeze(l_conf_cs),
             u_conf_cs=np.squeeze(u_conf_cs),
