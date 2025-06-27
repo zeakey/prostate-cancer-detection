@@ -13,6 +13,7 @@ import cv2
 from scipy.io import savemat
 import matplotlib.pyplot as plt
 from glob import glob
+from evaluate import _bootstrap
 
 _5mm_ball=np.array([np.pad(disk(6),[(2,2),(2,2)],'constant'),disk(8),
                     np.pad(disk(6),[(2,2),(2,2)],'constant')])
@@ -21,19 +22,8 @@ _5mm_ball=np.array([np.pad(disk(6),[(2,2),(2,2)],'constant'),disk(8),
 def LocalMaxi_Ruiming(src_path,img_path,pfile_dict_mask,pfile_dict_pred,instance_dict_mask,inference_name,mode,uncertainty):
     margin=10  # HZ: originally 5
     tmp_split=src_path.split("/")
-    #target_path = "." \
-    #""
-    #for i in range(1, len(tmp_split)-1):
-    #    target_path=target_path+"/"+tmp_split[i]
-    if uncertainty:
-        if not os.path.exists(mode[:-1]+'_uncertainty/'):
-            os.mkdir(mode[:-1]+'_uncertainty/')
-        target_path=mode[:-1]+'_uncertainty/measure_history/'
-    else:
-        target_path=mode+'measure_history/'
 
-    if not os.path.exists(target_path):
-        os.mkdir(target_path)
+
 
     localized_pts=[]
     pred_confidence=[]
@@ -79,7 +69,7 @@ def LocalMaxi_Ruiming(src_path,img_path,pfile_dict_mask,pfile_dict_pred,instance
         gt_mask_list.append(mask_data)
         name_list.append(case_name)
         inst_mask_list.append(inst_mask_data)
-    return localized_pts,pred_confidence,gt_mask_list,pz_mask_list,tz_mask_list,inst_mask_list,name_list,target_path
+    return localized_pts,pred_confidence,gt_mask_list,pz_mask_list,tz_mask_list,inst_mask_list,name_list
 
 
 def FROC_detection_fullvol_sel_group(localized_pts,pred_confidence,gt_masks,inst_masks,sel_gt_masks,
@@ -197,25 +187,6 @@ def FROC_detection_fullvol_sel_group(localized_pts,pred_confidence,gt_masks,inst
     return avg_fp,sensitivity,sensitivity_sel
 
 
-def _bootstrap(fp_count, tp_count, inst_count, b_iteration=1000,percentile=95):
-    n=fp_count.shape[0]
-    n_thres=fp_count.shape[1]
-    b_sensitivity=np.zeros((b_iteration, n_thres))
-    b_avg_fp=np.zeros((b_iteration, n_thres))
-    b_precision=np.zeros((b_iteration, n_thres))
-    for b_i in range(b_iteration):
-        sample_idx=np.random.randint(0,n,n)
-        b_sensitivity[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(inst_count[sample_idx])
-        b_avg_fp[b_i,:]=np.sum(fp_count[sample_idx,:],axis=0)/n
-        b_precision[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(tp_count[sample_idx,:] + fp_count[sample_idx,:], axis=0)
-    
-    b_precision = b_precision.mean(axis=0)
-    b_avg_fp=np.mean(b_avg_fp,axis=0)
-    u_conf=np.percentile(b_sensitivity,q=100.0-(100.0-percentile)/2,axis=0)
-    l_conf=np.percentile(b_sensitivity,q=(100.0-percentile)/2,axis=0)
-    return l_conf,u_conf,b_avg_fp, b_precision
-
-
 def _set_ax(ax,x_label,y_label,fig_title):
     ax.set_ylim([0.0,1.0])
     ax.set_yticks(np.arange(0.0,1.01,0.2))
@@ -293,6 +264,13 @@ def main():
     root_path = osp.abspath(osp.join(sys.argv[1], ".."))
     #root_path='results/'
     fd_list=[sys.argv[1].split('/')[-1]]
+
+    # save path
+    if len(sys.argv) >= 3:
+        save_path = sys.argv[2]
+    else:
+        save_path = osp.join(os.path.normpath(root_path), 'eval.mat')
+    print(f"Evaluating results in {root_path}, saving to {save_path}.")
     uncertainty_list=[]
     for i in range(len(fd_list)):
         uncertainty_list.append(False)
@@ -368,7 +346,7 @@ def main():
 
                 instance_dict_mask[case_name]=inst_mask_stack
 
-            localized_pts,pred_confidence,gt_mask_list,pz_mask_list,tz_mask_list,inst_mask_list,name_list,target_path\
+            localized_pts,pred_confidence,gt_mask_list,pz_mask_list,tz_mask_list,inst_mask_list,name_list\
                 =LocalMaxi_Ruiming(src_path_,img_path,pfile_dict_mask,pfile_dict_pred,instance_dict_mask,inference_name,mode,uncertainty)
 
             fp_cnt_cs,tp_cnt_cs,inst_cnt_cs,per_lesion_cnt_cs,lesion_cnt_cs,avg_FP,sen_all,sen_sel,fp_pts,tp_pts=FROC_detection_fullvol_sel_group(localized_pts,\
@@ -394,32 +372,15 @@ def main():
             ax2.set_ylim(0, 1)
             #
             ax2.plot(np.squeeze(precision), np.squeeze(sen_all))
-            #fig.savefig(os.path.join(target_path, 'eval_FROC_Ruiming.pdf'))
-            figname = f'{tgt_experiment}/FROC'
-            fig.savefig(figname + ".png")
+            fig.savefig(save_path + ".png")
             plt.close(fig)
-            savemat(figname + ".mat", {
+            savemat(save_path, {
                 'fp': np.squeeze(b_avg_fp),
                 'sensitivity_lower': np.squeeze(l_conf_cs),
                 'sensitivity_upper': np.squeeze(u_conf_cs),
                 'recall': np.squeeze(sen_all),
                 'precision': np.squeeze(precision),
             })
-
-            # #print("---------{}---------".format(target_path))
-            # pickle.dump(avg_FP,open(os.path.join(target_path,'avg_FP.p'),'wb'))
-            # pickle.dump(sen_all,open(os.path.join(target_path,'sen_all.p'),'wb'))
-            # pickle.dump(l_conf_cs,open(os.path.join(target_path,'l_conf_cs.p'),'wb'))
-            # pickle.dump(u_conf_cs,open(os.path.join(target_path,'u_conf_cs.p'),'wb'))
-            # pickle.dump(sen_sel,open(os.path.join(target_path,'sen_sel.p'),'wb'))
-            # pickle.dump(fp_pts,open(os.path.join(target_path,'fp_pts.p'),'wb'))
-            # pickle.dump(tp_pts,open(os.path.join(target_path,'tp_pts.p'),'wb'))
-            # pickle.dump(fp_cnt_cs,open(os.path.join(target_path,'fp_cnt_cs.p'),'wb'))
-            # pickle.dump(tp_cnt_cs,open(os.path.join(target_path,'tp_cnt_cs.p'),'wb'))
-            # pickle.dump(inst_cnt_cs,open(os.path.join(target_path,'inst_cnt_cs.p'),'wb'))
-            # pickle.dump(per_lesion_cnt_cs,open(os.path.join(target_path,'per_lesion_cnt_cs.p'),'wb'))
-            # pickle.dump(lesion_cnt_cs,open(os.path.join(target_path,'lesion_cnt_cs.p'),'wb'))
-            # pickle.dump(b_avg_fp,open(os.path.join(target_path,'b_avg_fp.p'),'wb'))
 
 
 if __name__=='__main__':
