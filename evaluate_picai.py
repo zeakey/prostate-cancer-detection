@@ -1,6 +1,6 @@
 #import cv2
 from PIL import Image
-import pickle
+import pickle, torch, io
 import numpy as np
 import os, sys
 import os.path as osp
@@ -11,7 +11,17 @@ from skimage.morphology import binary_dilation, disk
 import cv2
 import matplotlib.pyplot as plt
 from scipy.io import savemat
+from evaluate import _bootstrap
 
+
+class CPU_Unpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if module == 'torch.storage' and name == '_load_from_bytes':
+            return lambda b: torch.load(io.BytesIO(b), map_location='cpu', weights_only=True)
+        else: return super().find_class(module, name)
+
+def loadpk(f):
+    return CPU_Unpickler(open(f, 'rb')).load()
 
 _5mm_ball = np.array([np.pad(disk(6),[(2,2), (2, 2)], 'constant'), disk(8),
                       np.pad(disk(6),[(2,2), (2, 2)], 'constant')])
@@ -185,23 +195,6 @@ def FROC_detection_fullvol_sel_group(localized_pts, pred_confidence, gt_masks, i
 
     return avg_fp, sensitivity, sensitivity_sel
 
-def _bootstrap(fp_count, tp_count, inst_count, b_iteration=1000, percentile=95):
-        n = fp_count.shape[0]
-        n_thres = fp_count.shape[1]
-        b_sensitivity = np.zeros((b_iteration, n_thres))
-        b_avg_fp = np.zeros((b_iteration, n_thres))
-        b_precision = np.zeros((b_iteration, n_thres))
-        for b_i in range(b_iteration):
-            sample_idx = np.random.randint(0, n, n)
-            b_sensitivity[b_i, :] = np.sum(tp_count[sample_idx, :], axis=0) / np.sum(inst_count[sample_idx])
-            b_avg_fp[b_i, :] = np.sum(fp_count[sample_idx, :], axis=0) / n
-            b_precision[b_i,:]=np.sum(tp_count[sample_idx,:],axis=0)/np.sum(tp_count[sample_idx,:] + fp_count[sample_idx,:], axis=0)
-
-        b_precision = b_precision.mean(axis=0)
-        b_avg_fp = np.mean(b_avg_fp, axis=0)
-        u_conf = np.percentile(b_sensitivity, q=100.0 - (100.0-percentile)/2, axis=0)
-        l_conf = np.percentile(b_sensitivity, q=(100.0-percentile)/2, axis=0)
-        return l_conf, u_conf, b_avg_fp, np.squeeze(b_precision)
 
 def main():
     fd_list = ["work_dirs/3d"]
@@ -211,7 +204,7 @@ def main():
     if len(sys.argv) >= 3:
         save_path = sys.argv[2]
     else:
-        save_path = osp.join(os.path.normpath(src_path), 'eval.mat')
+        save_path = os.path.normpath(src_path) + '-eval'
 
     src_list = os.listdir(src_path)
     src_list.sort()
@@ -258,14 +251,16 @@ def main():
 
         patient_ids.append(tmp_name)
         tmp_mask_path = os.path.join(src_path, mask_list[i])
-        tmp_mask_data = np.load(tmp_mask_path)
+        # tmp_mask_data = np.load(tmp_mask_path)
+        tmp_mask_data = loadpk(tmp_mask_path).squeeze()
         pfile_dict_mask[tmp_name] = tmp_mask_data
 
         tmp_pred_path = os.path.join(src_path, pred_list[i])
-        tmp_pred_data = np.load(tmp_pred_path)
+        # tmp_pred_data = np.load(tmp_pred_path)
+        tmp_pred_data = loadpk(tmp_pred_path).squeeze()
         pfile_dict_pred[tmp_name] = tmp_pred_data
 
-        assert(tmp_pred_data.shape == tmp_mask_data.shape)
+        assert(tmp_pred_data.shape == tmp_mask_data.shape), f"{tmp_pred_data.shape} v.s.  {tmp_mask_data.shape} for {tmp_name}"
 
     instance_dict_mask = {}
     for i in range(len(pfile_dict_pred)):    
@@ -358,11 +353,11 @@ def main():
     ax1.fill_between(b_avg_fp, l_conf_cs, u_conf_cs, color='b', alpha=0.2)
     ax2.plot(precision, np.squeeze(sen_all))
 
-
-    os.makedirs(osp.dirname(save_path), exist_ok=True)
+    if osp.dirname(save_path) != '':
+        os.makedirs(osp.dirname(save_path), exist_ok=True)
     print(f"Saving results to {save_path}")
-    fig.savefig(save_path + '.pdf')
-    fig.savefig(save_path + '.jpg')
+    fig.savefig(save_path + '-roc.pdf')
+    fig.savefig(save_path + '-roc.jpg')
     savemat(
         save_path,
         dict(
@@ -370,7 +365,7 @@ def main():
             recall=np.squeeze(sen_all),
             l_conf_cs=np.squeeze(l_conf_cs),
             u_conf_cs=np.squeeze(u_conf_cs),
-            fp=np.squeeze(b_avg_fp)
+            b_avg_fp=np.squeeze(b_avg_fp)
         )
     )
 
